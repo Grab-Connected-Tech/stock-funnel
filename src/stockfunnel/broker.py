@@ -1,14 +1,15 @@
 """Paper broker with pre-trade risk checks and kill switches.
 
 Autopilot only ever trades here. A live adapter (Alpaca for US, Kite Connect for India) should
-implement the same `submit` contract and only be wired in after >= 6 months of clean paper
-trading (docs/research/llm-guardrails.md, promotion ladder).
+implement the same contract plus a limit-price band vs the live quote, and only be wired in after
+>= 6 months of clean paper trading (docs/research/llm-guardrails.md, promotion ladder).
+Paper fills use the signal-day close + modeled costs, which is mildly optimistic.
 """
 from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from . import data, journal
@@ -22,87 +23,122 @@ def load(market: str, capital: float | None = None) -> dict:
     if path.exists():
         return json.loads(path.read_text())
     cap = capital or (100_000.0 if market == "US" else 10_000_000.0)
-    return {"market": market, "cash": cap, "positions": {}, "peak_nav": cap, "halted": False,
-            "watchlist": {}, "executed": [], "trades": []}
+    return {"market": market, "universe": None, "cash": cap, "positions": {}, "peak_nav": cap, "halted": False,
+            "nav_history": {}, "watchlist": {}, "vetoes": {}, "executed": [], "trades": [], "last_rebalance": None}
+
+
+def state_hash(state: dict) -> str:
+    return hashlib.sha256(json.dumps(state, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def save(state: dict) -> None:
+    """Persist and anchor the state's hash in the journal, so out-of-band edits are detectable."""
     STATE_DIR.mkdir(exist_ok=True)
     (STATE_DIR / f"{state['market']}.json").write_text(json.dumps(state, indent=2, default=str))
+    journal.record("state", {"market": state["market"], "sha": state_hash(state)})
 
 
-def nav(state: dict, last: dict[str, float]) -> float:
-    return state["cash"] + sum(p["shares"] * last.get(t, p["avg_cost"]) for t, p in state["positions"].items())
+def tampered(state: dict) -> bool:
+    """True if the state file differs from the last version this code saved."""
+    if not (STATE_DIR / f"{state['market']}.json").exists():
+        return False
+    recs = [e for e in journal.entries("state") if e["payload"]["market"] == state["market"]]
+    return not recs or recs[-1]["payload"]["sha"] != state_hash(state)
+
+
+def nav(state: dict, last: dict[str, float]) -> float | None:
+    """None if any held position has no price: unknown value must never read as 'no loss'."""
+    if any(t not in last for t in state["positions"]):
+        return None
+    return state["cash"] + sum(p["shares"] * last[t] for t, p in state["positions"].items())
 
 
 def weights(state: dict, last: dict[str, float]) -> dict[str, float]:
     total = nav(state, last)
-    return {t: p["shares"] * last.get(t, p["avg_cost"]) / total for t, p in state["positions"].items()}
+    if not total:
+        return {}
+    return {t: p["shares"] * last[t] / total for t, p in state["positions"].items()}
 
 
-def risk_status(state: dict, last: dict[str, float]) -> dict:
-    """Updates peak NAV and the halt flag. A halt can only be cleared by a human (`stockfunnel reset-halt`)."""
+def risk_status(state: dict, last: dict[str, float], as_of: date) -> dict:
+    """Compute once per run. Daily loss compares to the NAV recorded on the previous *trading date*,
+    so repeated runs on the same day can't reset it. A halt is cleared only by `stockfunnel reset-halt`."""
     n = nav(state, last)
+    if n is None:
+        missing = sorted(t for t in state["positions"] if t not in last)
+        return {"nav": None, "drawdown": None, "day_return": None, "halted": state["halted"], "buys_paused": True,
+                "reason": f"no price for held positions {missing}"}
+    hist = state.setdefault("nav_history", {})
+    prior = [d for d in hist if d < as_of.isoformat()]
+    day_ret = n / hist[max(prior)] - 1 if prior else 0.0
+    hist[as_of.isoformat()] = n
     state["peak_nav"] = max(state["peak_nav"], n)
     dd = n / state["peak_nav"] - 1
-    day_ret = n / state.get("last_nav", n) - 1
-    state["last_nav"] = n
     if dd <= RISK["halt_autopilot_drawdown"]:
         state["halted"] = True
-    return {"nav": round(n, 2), "drawdown": round(dd, 4), "day_return": round(day_ret, 4), "halted": state["halted"],
-            "buys_paused": dd <= RISK["pause_buys_drawdown"] or day_ret <= RISK["max_daily_loss"] or state["halted"]}
+    paused = dd <= RISK["pause_buys_drawdown"] or day_ret <= RISK["max_daily_loss"] or state["halted"]
+    return {"nav": round(n, 2), "drawdown": round(dd, 4), "day_return": round(day_ret, 4),
+            "halted": state["halted"], "buys_paused": paused}
 
 
-def decision_id(market: str, ticker: str, action: str, target: float, day: date) -> str:
-    return hashlib.sha256(f"{market}|{ticker}|{action}|{target:.4f}|{day}".encode()).hexdigest()[:16]
+def decision_id(market: str, ticker: str, action: str, target: float, as_of: date) -> str:
+    return hashlib.sha256(f"{market}|{ticker}|{action}|{target:.4f}|{as_of}".encode()).hexdigest()[:16]
 
 
-def execute(state: dict, actions: dict[str, dict], last: dict[str, float], last_date: date, today: date | None = None) -> list[dict]:
-    """Executes final actions against the paper book. Every order passes the checks or is refused."""
+def _turnover_1y(state: dict, as_of: date, total: float) -> float:
+    since = (as_of - timedelta(days=365)).isoformat()
+    return sum(abs(t["shares"] * t["price"]) for t in state["trades"] if t["date"] >= since and t["shares"] > 0) / total
+
+
+def execute(state: dict, actions: dict[str, dict], last: dict[str, float], as_of: date, status: dict,
+            adv: dict[str, float], today: date | None = None) -> list[dict]:
+    """Executes final actions against the paper book. Every order passes the checks or is refused.
+    Risk-reducing orders (SELL/TRIM) are never blocked by budgets or pauses, only by missing data."""
     today = today or date.today()
     results = []
-    status = risk_status(state, last)
     total = status["nav"]
     cost = data.MARKETS[state["market"]]["cost_bps"] / 2 / 1e4   # one-way
-    month = today.strftime("%Y-%m")
-    trades_this_month = sum(1 for t in state["trades"] if t["date"].startswith(month))
+    month = as_of.strftime("%Y-%m")
+    buys_this_month = sum(1 for t in state["trades"] if t["date"].startswith(month) and t["shares"] > 0)
 
-    # Sells first so cash is available for buys.
-    order = sorted(actions.items(), key=lambda kv: kv[1]["action"] != "SELL" and kv[1]["action"] != "TRIM")
+    order = sorted(actions.items(), key=lambda kv: kv[1]["action"] not in ("SELL", "TRIM"))  # sells first
     for t, a in order:
         act = a["action"]
         if act not in ("BUY", "SELL", "TRIM"):
             continue
-        did = decision_id(state["market"], t, act, a.get("target_weight", 0.0), today)
-        refuse = None
-        price = last.get(t)
+        did = decision_id(state["market"], t, act, a.get("target_weight", 0.0), as_of)
+        price, refuse = last.get(t), None
         if did in state["executed"]:
             refuse = "duplicate decision (idempotency)"
+        elif total is None:
+            refuse = status.get("reason", "NAV unknown")
         elif price is None or price <= 0:
             refuse = "no valid last price"
-        elif (today - last_date).days > RISK["max_data_age_days"]:
-            refuse = f"stale data ({last_date})"
-        elif trades_this_month >= PORTFOLIO["max_trades_per_month"]:
-            refuse = "monthly trade budget exhausted"
-        elif act == "BUY" and status["buys_paused"]:
-            refuse = f"buys paused by drawdown kill switch ({status['drawdown']:.1%})"
-        elif state["halted"]:
-            refuse = "autopilot halted; human reset required"
+        elif (today - as_of).days > RISK["max_data_age_days"]:
+            refuse = f"stale data ({as_of})"
+        elif act == "BUY":
+            if state["halted"]:
+                refuse = "autopilot halted; human reset required"
+            elif status["buys_paused"]:
+                refuse = f"buys paused by kill switch (drawdown {status['drawdown']:.1%}, day {status['day_return']:.1%})"
+            elif buys_this_month >= PORTFOLIO["max_trades_per_month"]:
+                refuse = "monthly buy budget exhausted"
+            elif _turnover_1y(state, as_of, total) >= PORTFOLIO["max_annual_turnover"]:
+                refuse = "annual turnover budget exhausted"
         if refuse:
             results.append({"ticker": t, "action": act, "status": "REFUSED", "reason": refuse})
             continue
 
         pos = state["positions"].get(t, {"shares": 0, "avg_cost": price})
-        target_value = a.get("target_weight", 0.0) * total
-        delta_value = target_value - pos["shares"] * price
+        delta_value = a.get("target_weight", 0.0) * total - pos["shares"] * price
         if act == "SELL":
             delta_value = -pos["shares"] * price
         if act == "BUY":
-            delta_value = min(delta_value, RISK["max_order_fraction_nav"] * total, state["cash"] / (1 + cost))
+            delta_value = min(delta_value, RISK["max_order_fraction_nav"] * total,
+                              PORTFOLIO["max_adv_fraction"] * adv.get(t, 0.0), state["cash"] / (1 + cost))
+        if act in ("SELL", "TRIM"):
+            delta_value = min(delta_value, 0.0)  # a 'sell' can never buy
         fill = price * (1 + cost) if delta_value > 0 else price * (1 - cost)
-        if abs(fill / price - 1) > RISK["limit_price_band"]:
-            results.append({"ticker": t, "action": act, "status": "REFUSED", "reason": "fill outside limit band"})
-            continue
         shares = int(delta_value / fill)  # whole shares, rounds toward zero
         if shares == 0:
             results.append({"ticker": t, "action": act, "status": "SKIPPED", "reason": "order rounds to 0 shares"})
@@ -115,12 +151,12 @@ def execute(state: dict, actions: dict[str, dict], last: dict[str, float], last_
         else:
             avg = pos["avg_cost"] if shares < 0 else (pos["shares"] * pos["avg_cost"] + shares * fill) / new_shares
             state["positions"][t] = {"shares": new_shares, "avg_cost": round(avg, 4),
-                                     "opened": pos.get("opened", today.isoformat())}
-        trade = {"date": today.isoformat(), "ticker": t, "action": act, "shares": shares,
+                                     "opened": pos.get("opened", as_of.isoformat())}
+        trade = {"date": as_of.isoformat(), "ticker": t, "action": act, "shares": shares,
                  "price": round(fill, 4), "decision_id": did, "reason": a.get("reason")}
         state["trades"].append(trade)
         state["executed"].append(did)
-        trades_this_month += 1
+        buys_this_month += shares > 0
         journal.record("trade", {"market": state["market"], **trade})
         results.append({**trade, "status": "FILLED"})
     return results

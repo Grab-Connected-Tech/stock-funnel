@@ -14,7 +14,7 @@ from . import broker, data, funnel, journal, policy, regime, review
 mcp = MCPServer("stockfunnel", instructions=(
     "Evidence-based stock funnel for US (sp500) and India (nifty50/200/500). Workflow: "
     "1) market_regime 2) run_funnel(mode='manual') 3) for each pending BUY: get_review_packet -> "
-    "submit_review (you may only block or shrink, never upgrade) 4) run_funnel again (manual to recommend, "
+    "submit_review (you may only block, never upgrade; a BUY needs 2 valid reviews from distinct reviewer_ids) 4) run_funnel again (manual to recommend, "
     "autopilot to paper-trade). Never quote numbers that aren't in a tool result. Not investment advice."))
 
 
@@ -29,10 +29,15 @@ def market_regime(market: str) -> str:
 
 
 @mcp.tool()
-def run_funnel(universe: str, mode: str = "manual", limit: int | None = None) -> str:
+def run_funnel(universe: str, mode: str = "manual") -> str:
     """Run the full funnel. universe: sp500 | nifty500 | nifty200 | nifty50. mode: manual (recommend only)
-    or autopilot (executes on the PAPER book, after risk checks). BUYs without a valid review are held back."""
-    r = funnel.run(universe, mode, limit=limit)
+    or autopilot (executes on the PAPER book, after risk checks). BUYs need 2 valid reviews from distinct reviewers."""
+    if universe not in data.UNIVERSES:
+        return f"unknown universe; choose one of {sorted(data.UNIVERSES)}"
+    try:
+        r = funnel.run(universe, mode)
+    except (ValueError, RuntimeError) as e:
+        return f"refused: {e}"
     from .cli import render
     return render(r)
 
@@ -40,6 +45,8 @@ def run_funnel(universe: str, mode: str = "manual", limit: int | None = None) ->
 @mcp.tool()
 def get_review_packet(universe: str, ticker: str) -> str:
     """Facts, schema and instructions for reviewing one candidate. Cite fact_ids; don't use outside numbers."""
+    if universe not in data.UNIVERSES:
+        return f"unknown universe; choose one of {sorted(data.UNIVERSES)}"
     return _j(funnel.review_packet(ticker, funnel.analyze_universe(universe)))
 
 
@@ -47,7 +54,11 @@ def get_review_packet(universe: str, ticker: str) -> str:
 def submit_review(universe: str, ticker: str, review_json: str) -> str:
     """Submit a review (JSON string matching the packet schema). Invalid reviews are stored and BLOCK the buy.
     Multiple reviews per ticker are allowed; the most restrictive wins."""
+    if universe not in data.UNIVERSES:
+        return f"unknown universe; choose one of {sorted(data.UNIVERSES)}"
     an = funnel.analyze_universe(universe)
+    if ticker not in an["metrics"].index:
+        return f"{ticker} is not in {universe}"
     try:
         rev = json.loads(review_json)
     except json.JSONDecodeError as e:
@@ -63,8 +74,8 @@ def submit_review(universe: str, ticker: str, review_json: str) -> str:
 def portfolio_status(market: str) -> str:
     """Paper portfolio for 'US' or 'IN': NAV, drawdown, kill-switch state, weights, watchlist, recent trades."""
     st = broker.load(market)
-    last = data.prices(list(st["positions"]) or [data.MARKETS[market]["benchmark"]], "1mo")["close"].iloc[-1].to_dict()
-    return _j({"risk": broker.risk_status(st, last), "cash": st["cash"], "weights": broker.weights(st, last),
+    last, as_of = data.last_prices(data.prices(list(st["positions"]) or [data.MARKETS[market]["benchmark"]], "1mo")["close"])
+    return _j({"risk": broker.risk_status(st, last, as_of), "standing_vetoes": st.get("vetoes", {}), "cash": st["cash"], "weights": broker.weights(st, last),
                "watchlist": st["watchlist"], "recent_trades": st["trades"][-10:]})
 
 

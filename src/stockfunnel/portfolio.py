@@ -12,94 +12,92 @@ def capped_weights(raw: pd.Series, sectors: pd.Series, cap: float, sector_cap: f
     """Normalize raw scores to `total`, enforcing per-name and per-sector caps by redistribution.
     Whatever can't be placed without breaking a cap stays in cash."""
     w = raw / raw.sum() * total
-    for _ in range(50):
-        over_name = w > cap + 1e-12
-        sec_tot = w.groupby(sectors).transform("sum")
-        over_sec = sec_tot > sector_cap + 1e-12
-        if not over_name.any() and not over_sec.any():
-            break
-        w[over_name] = cap
-        w[over_sec] = w[over_sec] * sector_cap / sec_tot[over_sec]
-        free = ~(w >= cap - 1e-12) & ~(w.groupby(sectors).transform("sum") >= sector_cap - 1e-12)
+    for _ in range(200):
+        w = w.clip(upper=cap)
+        sec_tot = w.groupby(sectors).transform("sum")  # after name caps
+        w = w * (sector_cap / sec_tot).clip(upper=1.0)
         room = total - w.sum()
+        sec_tot = w.groupby(sectors).transform("sum")
+        free = (w < cap - 1e-9) & (sec_tot < sector_cap - 1e-9)
         if room <= 1e-9 or not free.any():
             break
-        w[free] += room * raw[free] / raw[free].sum()
-    return w
+        w[free] += room * raw[free] / raw[free].sum()  # overshoot is clipped next pass
+    w = w.clip(upper=cap)  # final enforcement: caps are guaranteed, excess becomes cash
+    return w * (sector_cap / w.groupby(sectors).transform("sum")).clip(upper=1.0)
 
 
 def plan(scored: pd.DataFrame, rejected: dict[str, list[str]], market: str, regime: dict,
-         holdings: dict[str, float], watchlist: dict[str, str], capital: float, today: date | None = None) -> dict:
+         holdings: dict[str, float], watchlist: dict[str, str], vetoes: dict[str, dict], capital: float,
+         as_of: date, last_rebalance: str | None = None) -> dict:
     """
     scored: gate-passing tickers with 'rank', 'vol_1y', 'sector', 'adv_value_60d', 'ret_1m', 'score'.
-    rejected: ticker -> failed gate names (from gates stage).
-    holdings: ticker -> current weight. watchlist: ticker -> ISO date first seen.
-    Returns targets, per-ticker actions with reasons, and watchlist updates.
+    rejected: ticker -> failed gate names. holdings: ticker -> current weight.
+    watchlist: ticker -> ISO date it (continuously) entered the buy zone. vetoes: ticker -> standing veto.
+    Returns per-ticker actions with reasons and the replacement watchlist.
     """
-    today = today or date.today()
     n, buffer = P["n_holdings"][market], P["hold_until_rank"][market]
     actions: dict[str, dict] = {}
+    rebalance_due = last_rebalance is None or (as_of - date.fromisoformat(last_rebalance)).days >= P["min_days_between_rebalances"]
 
-    # 1. Existing holdings: sell only on rule (gate failure or rank outside the buffer).
+    # 1. Existing holdings: sell only on rule (gate failure or rank outside the buffer). Gate SELLs ignore cadence.
     keep = []
     for t in holdings:
         if t in rejected:
             actions[t] = {"action": "SELL", "reason": f"failed gates: {', '.join(rejected[t]) or 'data unverifiable'}"}
         elif t not in scored.index or pd.isna(scored.at[t, "rank"]):
             actions[t] = {"action": "SELL", "reason": "no longer rankable (left universe or insufficient data)"}
-        elif scored.at[t, "rank"] > buffer:
+        elif scored.at[t, "rank"] > buffer and rebalance_due:
             actions[t] = {"action": "SELL", "reason": f"rank {int(scored.at[t, 'rank'])} outside hold buffer {buffer}"}
         else:
             keep.append(t)
 
-    # 2. New candidates in rank order; cooling-off and anti-chasing rules apply.
-    new_watch = {}
+    # 2. New candidates in rank order. Cooling-off counts *consecutive* days in the buy zone:
+    #    a name that drops out loses its place on the watchlist.
+    top = [t for t in scored.index[scored["rank"] <= n] if t not in keep]
+    new_watchlist = {t: watchlist.get(t, as_of.isoformat()) for t in top}
     candidates = []
-    for t in scored.index[scored["rank"] <= n]:
-        if t in keep or len(keep) + len(candidates) >= n:
-            continue
-        first_seen = watchlist.get(t)
-        waited = (today - date.fromisoformat(first_seen)).days if first_seen else 0
-        if not first_seen:
-            new_watch[t] = today.isoformat()
-        if waited < P["cooling_off_days"]:
-            actions[t] = {"action": "WATCH", "reason": f"cooling-off: {waited}/{P['cooling_off_days']} days on watchlist"}
+    for t in top:
+        if len(keep) + len(candidates) >= n:
+            break
+        waited = (as_of - date.fromisoformat(new_watchlist[t])).days
+        if t in vetoes:
+            actions[t] = {"action": "WATCH", "reason": f"standing veto since {vetoes[t]['date']}: {vetoes[t]['reason']}"}
+        elif waited < P["cooling_off_days"]:
+            actions[t] = {"action": "WATCH", "reason": f"cooling-off: {waited}/{P['cooling_off_days']} days in buy zone"}
         elif scored.at[t, "ret_1m"] > P["max_1m_return_for_buy"]:
             actions[t] = {"action": "WATCH", "reason": f"anti-chasing: up {scored.at[t, 'ret_1m']:.0%} in 1 month"}
+        elif not rebalance_due:
+            actions[t] = {"action": "WATCH", "reason": f"next rebalance after {P['min_days_between_rebalances']} days"}
         else:
             candidates.append(t)
 
-    # 3. Weights: inverse volatility, capped, scaled by regime exposure, limited by liquidity.
+    # 3. Weights: inverse vol at full exposure -> caps -> minimum weight -> liquidity, THEN scale
+    #    by the regime. (Scaling first would push names under the minimum and liquidate the book.)
     book = keep + candidates
     targets = pd.Series(dtype=float)
     if book:
         sub = scored.loc[book]
-        targets = capped_weights(1 / sub["vol_1y"], sub["sector"], P["max_weight"][market],
-                                 P["max_sector_weight"], total=regime["max_equity_exposure"])
-        liq_cap = P["max_adv_fraction"] * sub["adv_value_60d"] / capital
-        targets = targets.clip(upper=liq_cap)
+        targets = capped_weights(1 / sub["vol_1y"], sub["sector"], P["max_weight"][market], P["max_sector_weight"])
         targets = targets[targets >= P["min_weight"]]
+        targets = targets.clip(upper=P["max_adv_fraction"] * sub["adv_value_60d"] / capital) * regime["max_equity_exposure"]
 
     for t in book:
         tgt, cur = float(targets.get(t, 0.0)), holdings.get(t, 0.0)
         if tgt == 0.0:
-            actions[t] = {"action": "SELL" if cur else "WATCH", "reason": "weight below minimum after caps/liquidity"}
+            actions[t] = {"action": "SELL" if cur and rebalance_due else "HOLD" if cur else "WATCH",
+                          "reason": "weight below minimum after caps/liquidity"}
         elif cur == 0.0:
             actions[t] = {"action": "BUY", "reason": f"rank {int(scored.at[t, 'rank'])}, passed all gates and cooling-off"}
-        elif tgt > cur * (1 + P["drift_rebalance"]):
+        elif not rebalance_due:
+            actions[t] = {"action": "HOLD", "reason": "between rebalance dates"}
+        elif tgt > cur * (1 + P["drift_rebalance"]) and t not in vetoes:
             actions[t] = {"action": "BUY", "reason": f"top-up: target {tgt:.1%} vs current {cur:.1%}"}
         elif tgt < cur * (1 - P["drift_rebalance"]):
             actions[t] = {"action": "TRIM", "reason": f"trim: target {tgt:.1%} vs current {cur:.1%}"}
         else:
             actions[t] = {"action": "HOLD", "reason": f"within drift band (target {tgt:.1%}, current {cur:.1%})"}
-        actions[t]["target_weight"] = round(tgt, 4) if actions[t]["action"] not in ("HOLD",) else round(cur, 4)
+        actions[t]["target_weight"] = round(cur if actions[t]["action"] == "HOLD" else tgt, 4)
 
-    for t, a in actions.items():
+    for a in actions.values():
         a.setdefault("target_weight", 0.0)
-
-    return {
-        "actions": actions,
-        "equity_exposure": round(float(sum(a["target_weight"] for a in actions.values())), 4),
-        "cash_weight": round(1 - float(sum(a["target_weight"] for a in actions.values())), 4),
-        "watchlist_additions": new_watch,
-    }
+    return {"actions": actions, "watchlist": new_watchlist, "rebalance_due": rebalance_due}

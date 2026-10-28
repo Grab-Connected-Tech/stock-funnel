@@ -13,16 +13,17 @@ def _check(value, ok) -> str:
 
 def evaluate(m: dict, market: str) -> dict:
     """m = merged price + fundamental metrics (+ 'vol_percentile' set cross-sectionally)."""
-    fin = m.get("is_financial", False)
+    fin = bool(m.get("is_financial") or False)
     checks = {
         # tradability
         "history_1y": _check(m.get("history_days"), lambda v: v >= G["min_history_days"]),
         "min_price": _check(m.get("price"), lambda v: v >= G["min_price"][market]),
         "liquidity": _check(m.get("adv_value_60d"), lambda v: v >= G["min_adv_value"][market]),
+        "data_quality": _check(m.get("bad_print_days_1y"), lambda v: v == 0),
         "no_stale_trading": _check(m.get("zero_volume_days_60d"), lambda v: v <= G["max_zero_volume_days_60d"]),
         "min_market_cap": _check(m.get("market_cap"), lambda v: v >= G["min_market_cap"][market]),
         "not_lottery_stock": _check(m.get("vol_percentile"), lambda v: v <= G["max_vol_percentile"]),
-        "positive_equity": PASS if m.get("negative_equity") is False else FAIL if m.get("negative_equity") else UNKNOWN,
+        "positive_equity": _check(m.get("negative_equity"), lambda v: not bool(v)),  # numpy-bool safe
         "dilution": _check(m.get("net_issuance_1y"), lambda v: v <= G["max_net_issuance_1y"]),
     }
     if fin:

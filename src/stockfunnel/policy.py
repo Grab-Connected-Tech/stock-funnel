@@ -45,7 +45,8 @@ PORTFOLIO = Frozen({
     "cooling_off_days": 10,            # a name must sit on the watchlist before the first buy
     "max_1m_return_for_buy": 0.25,     # no chasing
     "drift_rebalance": 0.30,           # trade only if weight drifts > ±30% relative
-    "max_annual_turnover": 1.0,        # one-way; buffer-driven factor books run ~60-100%
+    "max_annual_turnover": 2.0,        # buy-side value / NAV per trailing year, incl. initial build-out (~1.0)
+    "min_days_between_rebalances": 25, # monthly cadence = what validate.py backtests (gate SELLs exempt)
     "max_trades_per_month": 20,
 })
 
@@ -53,7 +54,6 @@ RISK = Frozen({
     "pause_buys_drawdown": -0.15,
     "halt_autopilot_drawdown": -0.25,  # requires human reset
     "max_daily_loss": -0.03,
-    "limit_price_band": 0.02,          # limit orders within ±2% of last price
     "max_order_fraction_nav": 0.08,
     "max_data_age_days": 4,            # stale data blocks trading (weekends + holiday)
 })

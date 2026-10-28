@@ -44,14 +44,17 @@ def fundamental_metrics(f: dict) -> dict:
     mcap = info.get("marketCap")
     rev, ni = item(inc, acc.REV), item(inc, acc.NI)
     ta, eq = item(bal, acc.TA), item(bal, acc.EQUITY)
-    debt = item(bal, ["Total Debt"]) or 0.0
+    debt = item(bal, ["Total Debt"])
+    if debt is None:  # yfinance omits Total Debt for some firms; rebuild it, else leave unknown
+        parts = [item(bal, n) for n in (acc.LTD, ["Current Debt", "Current Debt And Capital Lease Obligation"])]
+        debt = None if all(p is None for p in parts) else sum(p or 0.0 for p in parts)
     cash = item(bal, ["Cash Cash Equivalents And Short Term Investments", "Cash And Cash Equivalents"]) or 0.0
     ebit, cfo = item(inc, acc.EBIT), item(cf, acc.CFO)
     capex = item(cf, ["Capital Expenditure"])
     fcf = item(cf, ["Free Cash Flow"]) or (None if None in (cfo, capex) else cfo + capex)
     interest = item(inc, ["Interest Expense", "Interest Expense Non Operating"])
-    ev = None if mcap is None else mcap + debt - cash
-    invested = None if eq is None else eq + debt - cash
+    ev = None if mcap is None or debt is None else mcap + debt - cash
+    invested = None if eq is None or debt is None else eq + debt - cash
     divs = -(item(cf, ["Cash Dividends Paid", "Common Stock Dividend Paid"]) or 0.0)
     buyback = -(item(cf, ["Repurchase Of Capital Stock", "Common Stock Payments"]) or 0.0)
     issuance = item(cf, ["Common Stock Issuance", "Issuance Of Capital Stock"]) or 0.0
@@ -84,14 +87,16 @@ def fundamental_metrics(f: dict) -> dict:
         "piotroski_signals": f_known,
         "earnings_variability": float(np.std(roas)) if len(roas) >= 3 else None,
         "montier_c": None if is_fin else acc.montier_c(inc, bal, cf),
-        "negative_cfo_years_3y": sum(1 for x in cfos if x is not None and x < 0),
+        "negative_cfo_years_3y": sum(1 for x in cfos if x is not None and x < 0) if sum(x is not None for x in cfos) >= 2 else None,
         "net_issuance_1y": sh0 / sh1 - 1 if sh0 and sh1 else None,
         "loss_years_4y": sum(1 for x in nis if x is not None and x < 0),
         "positive_fcf_years_4y": sum(1 for y in range(4) if (item(cf, ["Free Cash Flow"], y) or -1) > 0),
         # safety
         "debt_to_equity": div(debt, eq) if eq and eq > 0 else None,
-        "negative_equity": eq is not None and eq <= 0,
-        "interest_coverage": div(ebit, abs(interest)) if interest else (99.0 if ebit and ebit > 0 else None),
+        "negative_equity": None if eq is None else eq <= 0,
+        # No reported interest only counts as "no burden" when debt is known to be negligible.
+        "interest_coverage": div(ebit, abs(interest)) if interest else
+        (99.0 if ebit and ebit > 0 and debt is not None and ta and debt < 0.05 * ta else None),
         "altman_z2": None if is_fin else acc.altman_z2(bal, inc),
         "beneish_m": None if is_fin else acc.beneish_m(inc, bal, cf),
         # value

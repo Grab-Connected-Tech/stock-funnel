@@ -16,9 +16,8 @@ def assess(market: str) -> dict:
 
     # Rule 1 (Faber 2007): month-end close vs 10-month SMA. Below -> cap equity at 50%.
     monthly = idx.resample("ME").last()
-    month_end = monthly.iloc[-2] if monthly.index[-1].month == idx.index[-1].month else monthly.iloc[-1]  # last *completed* month
-    sma10 = monthly[monthly.index <= monthly.index[-2]][-10:].mean()
-    trend_up = bool(month_end > sma10)
+    monthly = monthly[monthly.index.tz_localize(None) <= idx.index[-1].tz_localize(None)]  # completed months only
+    trend_up = bool(monthly.iloc[-1] > monthly.iloc[-10:].mean())
 
     # Rule 2 (Daniel & Moskowitz 2016 panic state): bear market + high vol -> momentum crash risk.
     rets = idx.pct_change().dropna()

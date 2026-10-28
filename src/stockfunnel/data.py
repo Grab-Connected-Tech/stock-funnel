@@ -73,10 +73,32 @@ def prices(tickers: list[str], period: str = "3y") -> pd.DataFrame:
         close, vol = df["Close"], df["Volume"]
         if isinstance(close, pd.Series):
             close, vol = close.to_frame(tickers[0]), vol.to_frame(tickers[0])
-        return {"close": close, "volume": vol}
+        # Drop rows where every ticker is NaN (partial/holiday bars), so iloc[-1] is a real close.
+        close = close.dropna(how="all")
+        return {"close": close, "volume": vol.reindex(close.index)}
 
     key = f"prices_{period}_" + hashlib.sha1(",".join(sorted(tickers)).encode()).hexdigest()[:12]
     return _cached(key, fetch)
+
+
+BAD_PRINT = (-0.5, 1.0)  # daily moves outside this are almost always data errors for index constituents
+
+
+def clean(close: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Repair bad prints (unadjusted splits/bonuses, fat-finger spikes) by zeroing implausible daily
+    returns and re-chaining prices. Returns (clean_close, suspect_mask).
+    ponytail: a genuine >50% one-day collapse is also zeroed; the gates fail any stock with a
+    suspect day in the last year, so live decisions never rely on a repaired series."""
+    r = close.pct_change(fill_method=None)
+    suspect = (r < BAD_PRINT[0]) | (r > BAD_PRINT[1])
+    fixed = (1 + r.mask(suspect, 0.0).fillna(0.0)).cumprod() * close.bfill().iloc[0]
+    return fixed.where(close.notna()), suspect
+
+
+def last_prices(close: pd.DataFrame) -> tuple[dict[str, float], date]:
+    """Latest valid close per ticker (forward-filled across stragglers) and the as-of date."""
+    close = close.dropna(how="all")
+    return close.ffill().iloc[-1].dropna().to_dict(), close.index[-1].date()
 
 
 def fundamentals(ticker: str) -> dict:
