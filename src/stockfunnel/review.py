@@ -68,8 +68,8 @@ def validate(review: dict, packet: dict) -> list[str]:
         errs.append(f"unexpected fields: {sorted(extra)}")
     if review.get("ticker") != packet["ticker"]:
         errs.append("ticker mismatch")
-    if not str(review.get("reviewer_id", "")).strip():
-        errs.append("reviewer_id required")
+    if not isinstance(review.get("reviewer_id"), str) or not review["reviewer_id"].strip():
+        errs.append("reviewer_id must be a non-empty string")
     if review.get("verdict") not in VERDICTS:
         errs.append("verdict not in enum")
     flags = review.get("veto_flags")
@@ -92,6 +92,8 @@ def validate(review: dict, packet: dict) -> list[str]:
             not isinstance(e, dict) or e.get("fact_id") not in facts or not _relevant(e.get("fact_id"))
             or e.get("supports") not in SUPPORTS for e in ev):
         errs.append("evidence needs 3+ items citing decision-relevant packet facts")
+    elif sum(str(e["fact_id"]).startswith("m.") for e in ev) < 2:
+        errs.append("evidence must cite at least 2 company metrics (m.*), not just gate passes")
     elif not any(e["supports"] == "BEAR" for e in ev):
         errs.append("evidence must include at least one BEAR item (steelman the downside)")
     if review.get("confidence") not in ("LOW", "MEDIUM"):
@@ -131,6 +133,16 @@ def _min(a: str, b: str) -> str:
     return a if ACTIONS.index(a) <= ACTIONS.index(b) else b
 
 
+def standing_veto(review: dict, packet: dict) -> str | None:
+    """Reason to persist a veto (valid REJECT, any veto flag, or a high-severity pre-mortem), else None."""
+    if validate(review, packet):
+        return None
+    cap, reasons, human = cap_from_review(review, packet)
+    if review["verdict"] == "REJECT" or review["veto_flags"] or human:
+        return f"{review['reviewer_id']}: " + "; ".join(reasons)
+    return None
+
+
 def combine(quant_action: str, reviews: list[dict], packet: dict, held: bool, require_review_for_buy: bool = True) -> dict:
     """Final action = most restrictive of the quant action and every review's cap.
     Reviews never cause trades: caps only apply to BUY (incl. top-ups); SELL/TRIM/HOLD pass through.
@@ -146,8 +158,7 @@ def combine(quant_action: str, reviews: list[dict], packet: dict, held: bool, re
         c, rs, h = cap_from_review(r, packet)
         cap, human = _min(cap, c), human or h
         reasons += rs
-        if not validate(r, packet) and (r["verdict"] == "REJECT" or h or r["veto_flags"]):
-            veto = "; ".join(rs)
+        veto = veto or standing_veto(r, packet)
     valid_ids = {r["reviewer_id"] for r in reviews if not validate(r, packet)}
     pending = len(valid_ids) < MIN_REVIEWERS
     if pending:

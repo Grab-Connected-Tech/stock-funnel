@@ -36,6 +36,11 @@ def test_review_never_upgrades():
     vanity = dict(GOOD2, kill_criteria=[{"metric_id": "m.name", "direction": "FALLS_BELOW"}] * 2)
     assert review.validate(vanity, PACKET)  # kill criteria must be decision metrics
     assert review.combine("BUY", [GOOD, dict(GOOD2, verdict="REJECT")], PACKET, held=False)["veto"]
+    assert review.validate(dict(GOOD, reviewer_id=["x"]), PACKET)  # unhashable id is invalid, not a crash
+    review.combine("BUY", [GOOD, dict(GOOD, reviewer_id=["x"])], PACKET, held=False)
+    gate_only = dict(GOOD2, evidence=[{"fact_id": "g.piotroski", "supports": "BEAR"}, {"fact_id": "s.rank", "supports": "BULL"},
+                                      {"fact_id": "m.roe", "supports": "BULL"}])
+    assert review.validate(gate_only, PACKET)  # evidence needs >= 2 company metrics
     rnd = random.Random(0)
     for _ in range(3000):  # fuzz: random (often malformed) reviews
         r = dict(GOOD)
@@ -80,6 +85,17 @@ def test_risk_off_halves_not_liquidates():
     assert abs(sum(a["target_weight"] for a in off.values()) - 0.5) < 0.06
 
 
+def test_data_outage_holds_instead_of_selling():
+    scored = pd.DataFrame({"rank": [1.0], "vol_1y": [0.2], "sector": ["A"], "adv_value_60d": [1e12],
+                           "ret_1m": [0.0], "score": [1.0]}, index=["NEW"])
+    acts = portfolio.plan(scored, {"OLD": ["min_market_cap?", "piotroski?"], "BAD": ["beneish_m"]}, "US",
+                          {"max_equity_exposure": 1.0}, {"OLD": 0.05, "BAD": 0.05}, {}, {}, 1e6,
+                          date(2026, 10, 28), last_rebalance=None)["actions"]
+    assert acts["OLD"]["action"] == "HOLD" and acts["BAD"]["action"] == "SELL"
+    empty = scored.iloc[0:0]
+    portfolio.plan(empty, {}, "US", {"max_equity_exposure": 1.0}, {}, {}, {}, 1e6, date(2026, 10, 28))  # no crash
+
+
 def test_broker_kill_switches_and_idempotency():
     with tempfile.TemporaryDirectory() as d:
         os.chdir(d)
@@ -117,6 +133,22 @@ def test_broker_kill_switches_and_idempotency():
         Path("journal/decisions.jsonl").write_text("\n".join([lines[0].replace("AAA", "ZZZ")] + lines[1:]) + "\n")
         assert not journal.verify()  # tampering is detected
 
+    with tempfile.TemporaryDirectory() as d:  # deleting state must not reset the book
+        os.chdir(d)
+        st = broker.load("IN", 1e6)
+        broker.save(st)
+        Path("state/IN.json").unlink()
+        assert broker.tampered(broker.load("IN"))
+        # one unpriceable holding: buys blocked, sells of the rest still execute
+        st = broker.load("US", 100_000)
+        st["positions"] = {"GONE": {"shares": 10, "avg_cost": 50.0}, "OK": {"shares": 100, "avg_cost": 10.0}}
+        day = date(2026, 10, 28)
+        status = broker.risk_status(st, {"OK": 10.0}, day)
+        assert status["nav"] is None and status["buys_paused"]
+        res = broker.execute(st, {"OK": {"action": "SELL"}, "NEW": {"action": "BUY", "target_weight": 0.05}},
+                             {"OK": 10.0, "NEW": 5.0}, day, status, adv={"NEW": 1e9}, today=day)
+        assert {r["ticker"]: r["status"] for r in res} == {"OK": "FILLED", "NEW": "REFUSED"}
+
 
 def test_bad_prints_repaired():
     from stockfunnel import data
@@ -124,6 +156,11 @@ def test_bad_prints_repaired():
     fixed, suspect = data.clean(px)
     assert suspect["A"].sum() == 2 and suspect["B"].sum() == 1
     assert fixed["A"].max() < 110 and abs(fixed["B"].iloc[-1] - 10) < 1e-9
+    gap = pd.DataFrame({"C": [10, np.nan, 2, 2.0]})  # unadjusted split across a missing day
+    assert data.clean(gap)[1]["C"].sum() == 1
+    idx = pd.to_datetime(["2026-10-20", "2026-10-27", "2026-10-28"])
+    last, as_of = data.last_prices(pd.DataFrame({"LIVE": [1, 2, 3.0], "SUSP": [5, np.nan, np.nan]}, index=idx))
+    assert "SUSP" not in last and last["LIVE"] == 3.0  # suspended stock: no fictional price
 
 
 def test_deflated_sharpe_penalizes_many_trials():

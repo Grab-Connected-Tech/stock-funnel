@@ -6,10 +6,15 @@ order. The agent can read, review (veto-only), and trigger paper autopilot runs.
 from __future__ import annotations
 
 import json
+import os
 
 from mcp.server.mcpserver import MCPServer
 
-from . import broker, data, funnel, journal, policy, regime, review
+from . import broker, data, funnel, policy, regime
+
+# Identity of this server's reviews. Run a second server with a different value (or review via the
+# CLI yourself) to supply the independent second review a BUY requires.
+REVIEWER_ID = "mcp:" + os.environ.get("STOCKFUNNEL_REVIEWER_ID", "agent")
 
 mcp = MCPServer("stockfunnel", instructions=(
     "Evidence-based stock funnel for US (sp500) and India (nifty50/200/500). Workflow: "
@@ -53,21 +58,13 @@ def get_review_packet(universe: str, ticker: str) -> str:
 @mcp.tool()
 def submit_review(universe: str, ticker: str, review_json: str) -> str:
     """Submit a review (JSON string matching the packet schema). Invalid reviews are stored and BLOCK the buy.
-    Multiple reviews per ticker are allowed; the most restrictive wins."""
-    if universe not in data.UNIVERSES:
-        return f"unknown universe; choose one of {sorted(data.UNIVERSES)}"
-    an = funnel.analyze_universe(universe)
-    if ticker not in an["metrics"].index:
-        return f"{ticker} is not in {universe}"
+    Your reviewer_id is set by the server, not by you: a BUY needs a second, independent reviewer
+    (a human via the CLI, or another separately configured MCP server). REJECTs and veto flags persist."""
     try:
         rev = json.loads(review_json)
     except json.JSONDecodeError as e:
-        rev, errs = {"unparseable": review_json[:500]}, [f"invalid JSON: {e}"]
-    else:
-        errs = review.validate(rev, funnel.review_packet(ticker, an))
-    funnel.save_review(an["market"], an["as_of"], ticker, rev)
-    journal.record("review", {"ticker": ticker, "as_of": an["as_of"], "valid": not errs, "review": rev})
-    return _j({"valid": not errs, "errors": errs})
+        rev = f"invalid JSON: {e}"
+    return _j(funnel.record_review(universe, ticker, rev, reviewer_id=REVIEWER_ID))
 
 
 @mcp.tool()

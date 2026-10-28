@@ -89,16 +89,23 @@ def clean(close: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     returns and re-chaining prices. Returns (clean_close, suspect_mask).
     ponytail: a genuine >50% one-day collapse is also zeroed; the gates fail any stock with a
     suspect day in the last year, so live decisions never rely on a repaired series."""
-    r = close.pct_change(fill_method=None)
+    r = close.ffill().pct_change(fill_method=None).where(close.notna())  # moves across gaps count
     suspect = (r < BAD_PRINT[0]) | (r > BAD_PRINT[1])
     fixed = (1 + r.mask(suspect, 0.0).fillna(0.0)).cumprod() * close.bfill().iloc[0]
     return fixed.where(close.notna()), suspect
 
 
-def last_prices(close: pd.DataFrame) -> tuple[dict[str, float], date]:
-    """Latest valid close per ticker (forward-filled across stragglers) and the as-of date."""
+def last_prices(close: pd.DataFrame, max_age_days: int = 4) -> tuple[dict[str, float], date]:
+    """Latest close per ticker and the as-of date. A ticker that hasn't printed within max_age_days
+    of the as-of date (suspended/delisted) gets no price, so NAV reads as unknown, not unchanged."""
     close = close.dropna(how="all")
-    return close.ffill().iloc[-1].dropna().to_dict(), close.index[-1].date()
+    as_of = close.index[-1]
+    out = {}
+    for t in close:
+        s = close[t].dropna()
+        if len(s) and (as_of - s.index[-1]).days <= max_age_days:
+            out[t] = float(s.iloc[-1])
+    return out, as_of.date()
 
 
 def fundamentals(ticker: str) -> dict:

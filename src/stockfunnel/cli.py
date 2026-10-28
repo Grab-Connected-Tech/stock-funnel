@@ -7,7 +7,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from . import broker, data, funnel, gates, journal, metrics, regime, review
+from . import broker, data, funnel, gates, journal, metrics, regime
 
 
 def render(r: dict) -> str:
@@ -37,7 +37,7 @@ def render(r: dict) -> str:
     if r["pending_reviews"]:
         out += ["", f"## Pending reviews ({len(r['pending_reviews'])})",
                 "BUYs need a valid review first: `stockfunnel packet <universe> <TICKER>` → reviewer fills the schema → "
-                "`stockfunnel review <universe> <TICKER> review.json`.", ", ".join(r["pending_reviews"])]
+                "`stockfunnel review <universe> <TICKER> review.json --reviewer <you>`.", ", ".join(r["pending_reviews"])]
     out += ["", "## Manual checks before real money"] + [f"- [ ] {c}" for c in r["manual_checks_required"]]
     out += ["", "## Top ranked", "| # | Ticker | Name | Sector | Score | Value | Quality | Mom | LowVol | Yield |",
             "|---|---|---|---|---|---|---|---|---|---|"]
@@ -76,6 +76,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("universe"); p.add_argument("ticker")  # noqa: E702
     p = sub.add_parser("review", help="validate + store a review JSON")
     p.add_argument("universe"); p.add_argument("ticker"); p.add_argument("file")  # noqa: E702
+    p.add_argument("--reviewer", required=True, help="who is reviewing (your initials, or the model name)")
+    p = sub.add_parser("write-off", help="HUMAN ONLY: remove an unpriceable (delisted/renamed) position at zero")
+    p.add_argument("market", choices=["US", "IN"]); p.add_argument("ticker")  # noqa: E702
     sub.add_parser("status", help="paper portfolio").add_argument("market", choices=["US", "IN"])
     sub.add_parser("reset-halt", help="HUMAN ONLY: clear the drawdown halt").add_argument("market", choices=["US", "IN"])
     p = sub.add_parser("clear-veto", help="HUMAN ONLY: clear a standing review veto")
@@ -103,13 +106,11 @@ def main(argv: list[str] | None = None) -> int:
         an = funnel.analyze_universe(a.universe)
         print(json.dumps(funnel.review_packet(a.ticker, an), indent=2, default=str))
     elif a.cmd == "review":
-        an = funnel.analyze_universe(a.universe)
-        rev = json.loads(Path(a.file).read_text())
-        errs = review.validate(rev, funnel.review_packet(a.ticker, an))
-        funnel.save_review(an["market"], an["as_of"], a.ticker, rev)
-        journal.record("review", {"ticker": a.ticker, "as_of": an["as_of"], "valid": not errs, "review": rev})
-        print(json.dumps({"stored": True, "valid": not errs, "errors": errs,
-                          "note": "invalid reviews are stored and BLOCK the buy"}, indent=2))
+        try:
+            rev = json.loads(Path(a.file).read_text())
+        except json.JSONDecodeError as e:
+            rev = f"invalid JSON: {e}"
+        print(json.dumps(funnel.record_review(a.universe, a.ticker, rev, reviewer_id=f"cli:{a.reviewer}"), indent=2))
     elif a.cmd == "status":
         st = broker.load(a.market)
         last, as_of = data.last_prices(data.prices(list(st["positions"]) or [data.MARKETS[a.market]["benchmark"]], "1mo")["close"])
@@ -117,6 +118,19 @@ def main(argv: list[str] | None = None) -> int:
                           "standing_vetoes": st.get("vetoes", {}),
                           "weights": {k: round(v, 4) for k, v in broker.weights(st, last).items()},
                           "watchlist": st["watchlist"], "recent_trades": st["trades"][-10:]}, indent=2))
+    elif a.cmd in ("reset-halt", "clear-veto", "write-off") and broker.tampered(broker.load(a.market)):
+        if input("State does not match the journal (edited outside stockfunnel?). Type ACCEPT to adopt it: ").strip() != "ACCEPT":
+            return 1
+        journal.record("accept_tampered_state", {"market": a.market, "date": str(date.today())})
+        broker.save(broker.load(a.market))  # re-anchor the hash to the accepted state
+        return main(argv)  # re-dispatch now that the human has accepted the current state
+    elif a.cmd == "write-off":
+        if input(f"Type WRITE-OFF {a.ticker} to remove it at zero value: ").strip() != f"WRITE-OFF {a.ticker}":
+            return 1
+        st = broker.load(a.market)
+        removed = st["positions"].pop(a.ticker, None)
+        broker.save(st)
+        journal.record("write_off", {"market": a.market, "ticker": a.ticker, "position": removed})
     elif a.cmd == "reset-halt":
         if input(f"Type RESET {a.market} to clear the halt: ").strip() != f"RESET {a.market}":
             return 1

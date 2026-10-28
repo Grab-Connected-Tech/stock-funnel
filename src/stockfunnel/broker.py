@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -34,15 +35,21 @@ def state_hash(state: dict) -> str:
 def save(state: dict) -> None:
     """Persist and anchor the state's hash in the journal, so out-of-band edits are detectable."""
     STATE_DIR.mkdir(exist_ok=True)
-    (STATE_DIR / f"{state['market']}.json").write_text(json.dumps(state, indent=2, default=str))
+    path = STATE_DIR / f"{state['market']}.json"
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2, default=str))
     journal.record("state", {"market": state["market"], "sha": state_hash(state)})
+    os.replace(tmp, path)  # atomic: a crash leaves either the old or the new file, never a torn one
 
 
 def tampered(state: dict) -> bool:
-    """True if the state file differs from the last version this code saved."""
-    if not (STATE_DIR / f"{state['market']}.json").exists():
-        return False
+    """True if the state differs from the last version this code saved, or the file was deleted
+    after having existed (deleting state must not reset halts, peaks and vetoes).
+    ponytail: the anchor is unkeyed, so an agent with shell access could forge a matching journal
+    entry; MCP-only agents can't. Upgrade path: HMAC the state hash with a key outside the repo."""
     recs = [e for e in journal.entries("state") if e["payload"]["market"] == state["market"]]
+    if not (STATE_DIR / f"{state['market']}.json").exists():
+        return bool(recs)
     return not recs or recs[-1]["payload"]["sha"] != state_hash(state)
 
 
@@ -53,11 +60,15 @@ def nav(state: dict, last: dict[str, float]) -> float | None:
     return state["cash"] + sum(p["shares"] * last[t] for t, p in state["positions"].items())
 
 
+def priced_nav(state: dict, last: dict[str, float]) -> float:
+    """Cash + positions that have a price (unpriced ones excluded, not valued at cost)."""
+    return state["cash"] + sum(p["shares"] * last[t] for t, p in state["positions"].items() if t in last)
+
+
 def weights(state: dict, last: dict[str, float]) -> dict[str, float]:
-    total = nav(state, last)
-    if not total:
-        return {}
-    return {t: p["shares"] * last[t] / total for t, p in state["positions"].items()}
+    """Weights of priced positions; unpriced holdings appear with weight 0 so they're never forgotten."""
+    total = priced_nav(state, last)
+    return {t: (p["shares"] * last[t] / total if t in last else 0.0) for t, p in state["positions"].items()}
 
 
 def risk_status(state: dict, last: dict[str, float], as_of: date) -> dict:
@@ -66,8 +77,9 @@ def risk_status(state: dict, last: dict[str, float], as_of: date) -> dict:
     n = nav(state, last)
     if n is None:
         missing = sorted(t for t in state["positions"] if t not in last)
-        return {"nav": None, "drawdown": None, "day_return": None, "halted": state["halted"], "buys_paused": True,
-                "reason": f"no price for held positions {missing}"}
+        return {"nav": None, "priced_nav": round(priced_nav(state, last), 2), "drawdown": None, "day_return": None,
+                "halted": state["halted"], "buys_paused": True,
+                "reason": f"no recent price for held positions {missing} (human: `stockfunnel write-off`)"}
     hist = state.setdefault("nav_history", {})
     prior = [d for d in hist if d < as_of.isoformat()]
     day_ret = n / hist[max(prior)] - 1 if prior else 0.0
@@ -96,7 +108,7 @@ def execute(state: dict, actions: dict[str, dict], last: dict[str, float], as_of
     Risk-reducing orders (SELL/TRIM) are never blocked by budgets or pauses, only by missing data."""
     today = today or date.today()
     results = []
-    total = status["nav"]
+    total = status["nav"] or status.get("priced_nav")  # sells still work if one holding is unpriced
     cost = data.MARKETS[state["market"]]["cost_bps"] / 2 / 1e4   # one-way
     month = as_of.strftime("%Y-%m")
     buys_this_month = sum(1 for t in state["trades"] if t["date"].startswith(month) and t["shares"] > 0)
@@ -110,14 +122,16 @@ def execute(state: dict, actions: dict[str, dict], last: dict[str, float], as_of
         price, refuse = last.get(t), None
         if did in state["executed"]:
             refuse = "duplicate decision (idempotency)"
-        elif total is None:
-            refuse = status.get("reason", "NAV unknown")
+        elif not total:
+            refuse = "NAV unknown"
         elif price is None or price <= 0:
             refuse = "no valid last price"
         elif (today - as_of).days > RISK["max_data_age_days"]:
             refuse = f"stale data ({as_of})"
         elif act == "BUY":
-            if state["halted"]:
+            if status["nav"] is None:
+                refuse = status.get("reason", "NAV unknown")
+            elif state["halted"]:
                 refuse = "autopilot halted; human reset required"
             elif status["buys_paused"]:
                 refuse = f"buys paused by kill switch (drawdown {status['drawdown']:.1%}, day {status['day_return']:.1%})"

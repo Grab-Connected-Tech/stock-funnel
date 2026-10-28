@@ -42,8 +42,11 @@ def plan(scored: pd.DataFrame, rejected: dict[str, list[str]], market: str, regi
     # 1. Existing holdings: sell only on rule (gate failure or rank outside the buffer). Gate SELLs ignore cadence.
     keep = []
     for t in holdings:
-        if t in rejected:
-            actions[t] = {"action": "SELL", "reason": f"failed gates: {', '.join(rejected[t]) or 'data unverifiable'}"}
+        hard_fails = [r for r in rejected.get(t, []) if not r.endswith("?")]
+        if hard_fails:
+            actions[t] = {"action": "SELL", "reason": f"failed gates: {', '.join(hard_fails)}"}
+        elif t in rejected:  # only unknowns, e.g. a data outage: don't force-sell on missing data
+            actions[t] = {"action": "HOLD", "reason": f"data unverifiable ({', '.join(rejected[t])}); holding, no adds"}
         elif t not in scored.index or pd.isna(scored.at[t, "rank"]):
             actions[t] = {"action": "SELL", "reason": "no longer rankable (left universe or insufficient data)"}
         elif scored.at[t, "rank"] > buffer and rebalance_due:

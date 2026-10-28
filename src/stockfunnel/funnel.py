@@ -72,7 +72,8 @@ def analyze_universe(universe: str, limit: int | None = None, extra: list[str] |
 
     passed = df.loc[[t for t in df.index if results[t]["passed"]]].copy()
     passed["is_financial"] = passed["is_financial"].astype(bool) if "is_financial" in passed else False
-    scored = score.composite(passed, market, reg["momentum_crash_guard"]) if len(passed) else passed
+    scored = (score.composite(passed, market, reg["momentum_crash_guard"]) if len(passed)
+              else passed.assign(rank=pd.Series(dtype=float), score=pd.Series(dtype=float)))  # nothing passed
     return {"market": market, "universe": universe, "as_of": str(last_date), "regime": reg,
             "metrics": df, "gates": results, "rejected": rejected, "scored": scored,
             "last_prices": last, "last_date": last_date,
@@ -118,9 +119,35 @@ def save_review(market: str, as_of: str, t: str, rev: dict) -> list[str]:
     return existing
 
 
+def record_review(universe: str, ticker: str, rev, reviewer_id: str) -> dict:
+    """Single entry point for reviews (CLI and MCP). The *caller* stamps reviewer_id, so one agent
+    can't pose as two reviewers. A valid REJECT / veto flag / high-severity pre-mortem becomes a
+    standing veto immediately, whatever the ticker's current action."""
+    if universe not in data.UNIVERSES:
+        return {"valid": False, "errors": [f"unknown universe; choose one of {sorted(data.UNIVERSES)}"]}
+    an = analyze_universe(universe)
+    if ticker not in an["metrics"].index:
+        return {"valid": False, "errors": [f"{ticker} is not in {universe}"]}
+    rev = rev | {"reviewer_id": reviewer_id} if isinstance(rev, dict) else {"unparseable": str(rev)[:500]}
+    packet = review_packet(ticker, an)
+    errs = review.validate(rev, packet)
+    save_review(an["market"], an["as_of"], ticker, rev)
+    journal.record("review", {"ticker": ticker, "as_of": an["as_of"], "valid": not errs, "review": rev})
+    veto = review.standing_veto(rev, packet)
+    if veto:
+        state = broker.load(an["market"])
+        if (broker.STATE_DIR / f"{an['market']}.json").exists() and not broker.tampered(state):
+            state.setdefault("vetoes", {}).setdefault(ticker, {"date": an["as_of"], "reason": veto})
+            broker.save(state)
+            journal.record("veto", {"market": an["market"], "ticker": ticker, "reason": veto})
+    return {"valid": not errs, "errors": errs, "standing_veto": veto,
+            "note": "invalid reviews are stored and block the buy; a BUY needs 2 valid PROCEEDs from distinct reviewers"}
+
+
 def run(universe: str, mode: str = "manual", capital: float | None = None, limit: int | None = None,
         require_review: bool = True, today: date | None = None) -> dict:
-    assert mode in ("manual", "autopilot")
+    if mode not in ("manual", "autopilot"):
+        raise ValueError("mode must be manual or autopilot")
     # "Official" runs (named universe, no limit, matching the book's locked universe) may change state.
     # Anything else is a what-if: it reports but never touches the book, watchlist or vetoes.
     market = data.UNIVERSES[universe][0] if universe in data.UNIVERSES else data.universe(universe)[0]
@@ -131,6 +158,8 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
             raise ValueError(f"autopilot needs a named universe, no --limit, matching the book's lock "
                              f"({state.get('universe') or 'unlocked'})")
     if official:
+        if not journal.verify():
+            raise RuntimeError("journal hash chain is broken; refusing (inspect journal/decisions.jsonl)")
         if broker.tampered(state):
             raise RuntimeError(f"state/{market}.json changed outside stockfunnel (hash mismatch with journal); refusing")
         state["universe"] = universe
@@ -142,7 +171,7 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
     vetoes = state.setdefault("vetoes", {})
 
     p = portfolio.plan(a["scored"], a["rejected"], market, a["regime"], held, state["watchlist"], vetoes,
-                       capital=risk["nav"] or 1.0, as_of=as_of, last_rebalance=state.get("last_rebalance"))
+                       capital=risk["nav"] or risk.get("priced_nav") or 1.0, as_of=as_of, last_rebalance=state.get("last_rebalance"))
     if official:  # what-if runs never advance the cooling-off clock
         state["watchlist"] = p["watchlist"]
 
@@ -150,7 +179,11 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
     for t, act in p["actions"].items():
         packet = review_packet(t, a) if act["action"] == "BUY" else {}
         reviews = load_reviews(market, a["as_of"], t) if packet else []
-        c = review.combine(act["action"], reviews, packet, held=t in held, require_review_for_buy=require_review)
+        try:
+            c = review.combine(act["action"], reviews, packet, held=t in held, require_review_for_buy=require_review)
+        except Exception as e:  # a malformed review must never abort the run (gate SELLs still need to execute)
+            c = {"action": act["action"] if act["action"] != "BUY" else ("HOLD" if t in held else "WATCH"),
+                 "review_reasons": [f"review processing error: {type(e).__name__}"], "human_review": True, "veto": None}
         if c.get("veto") and t not in vetoes and official:
             vetoes[t] = {"date": a["as_of"], "reason": c["veto"], "human_review": c["human_review"]}
             journal.record("veto", {"market": market, "ticker": t, **vetoes[t]})
