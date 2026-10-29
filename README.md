@@ -77,7 +77,8 @@ The UI only reads and recommends. It never trades, edits policy or clears vetoes
 - A held stock with no recent price makes NAV unknown, which pauses buys. Sells still execute.
 - A malformed review blocks the buy without crashing the run.
 
-### Use from Claude / any MCP client
+### Use from Claude Desktop / any MCP client
+Claude Desktop is configured in `~/Library/Application Support/Claude/claude_desktop_config.json`. Use the full path to `uv`, because desktop apps don't inherit your shell PATH. Restart Claude Desktop after editing. Example prompt: *"I have ₹10,000 to invest in Indian stocks and hope for 1% a month over the next 3 months. Use stockfunnel."*
 ```json
 { "mcpServers": { "stockfunnel": {
     "command": "uv", "args": ["--directory", "/Users/abhilashreddy/Projects/stock-funnel", "run", "stockfunnel-mcp"],
@@ -87,6 +88,7 @@ The UI only reads and recommends. It never trades, edits policy or clears vetoes
 - **Tools:** `market_regime`, `analyze_stock`, `run_funnel`, `get_review_packet`, `submit_review`, `portfolio_status`, `track_record`, `explain_policy`. `analyze_stock` and `run_funnel` return structured JSON by default; pass `format: "markdown"` for prose.
 - **Judgement protocol:** sent automatically as the server's instructions, and also available as the resource `stockfunnel://protocol`. In short, the tool decides and the model explains. The model must never upgrade an action, may quote only numbers from the tool, and must label any outside knowledge as "Outside the tool:", which can only add caution. It is defined in [protocol.py](src/stockfunnel/protocol.py).
 - **Field guide:** `stockfunnel://field-guide` explains every JSON field.
+- **`plan_investment(amount, market, months, target_monthly_return)`** turns an amount into share counts with buy-from dates. It recommends the index ETF when the amount is too small to diversify, holds back cash in risk-off markets, and answers return hopes with historical odds, never a forecast.
 - **Prompts:** `judge_stock(ticker)` and `screen_market(universe)` walk a model through the protocol step by step.
 - **Without MCP:** the web server publishes an OpenAPI spec at `http://127.0.0.1:8765/openapi.json`, with the protocol in its description. The endpoints are `/api/analyze`, `/api/regime`, `/api/run`, `/api/validation`, `/api/status`, `/api/track_record` and `/api/protocol`.
 

@@ -40,6 +40,13 @@ HOW TO JUDGE A STOCK
    recommendation.evidence_scope (what is and isn't backtested), and that this is not personal financial advice.
 6. If action is BUY AFTER, the start_date is a deliberate cooling-off period. Do not shorten it.
 
+"I HAVE <AMOUNT> TO INVEST" QUESTIONS
+- Call plan_investment(amount, market, months, target_monthly_return). Lead with recommended_route and
+  route_reason. If it says "index fund", say so first; small amounts can't diversify across 30 stocks.
+- Never promise or predict a return. Answer return hopes with historical_odds (how often the index got
+  there over that horizon, and how often it lost money), described as history, not a forecast.
+- Repeat every item in notes (horizon, tax, risk-off cash). Present positions with shares, cost and buy_from.
+
 HOW TO SCREEN A MARKET
 - market_regime(market) first: if max_equity_exposure < 1, the system keeps cash on purpose.
 - run_funnel(universe, format="json"): actions per stock, plus top_ranked. Present BUY / BUY AFTER

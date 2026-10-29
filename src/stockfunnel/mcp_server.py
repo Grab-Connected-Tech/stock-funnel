@@ -63,6 +63,18 @@ def run_funnel(universe: str, mode: str = "manual", format: str = "json") -> str
 
 
 @mcp.tool()
+def plan_investment(amount: float, market: str = "IN", months: int = 3, target_monthly_return: float | None = None) -> str:
+    """Turn an amount of money into a concrete plan: which stocks and how many shares (or the index fund when the amount
+    is too small to diversify), cash held back by the market regime, buy-from dates, and HISTORICAL odds of reaching a
+    hoped-for return (e.g. target_monthly_return=0.01 for 1%/month). Use this for any 'I have X to invest' question.
+    market: 'IN' or 'US'. Never present the odds as a forecast."""
+    if market not in ("IN", "US"):
+        return "market must be 'IN' or 'US'"
+    from .plan import plan_investment as build
+    return dumps(build(float(amount), market, int(months), target_monthly_return))
+
+
+@mcp.tool()
 def get_review_packet(universe: str, ticker: str) -> str:
     """Facts, schema and instructions for reviewing one paper-trading candidate. Cite fact_ids only."""
     if err := _bad_universe(universe):
