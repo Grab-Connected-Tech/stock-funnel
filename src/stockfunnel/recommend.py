@@ -116,6 +116,9 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     if fm.get("peak_cycle_earnings"):
         warn_checks.append(f"possible peak-cycle earnings: current profit is {fm['earnings_vs_normal']:.1f}× its multi-year "
                            "average, so value and quality were judged on the average")
+    if fm.get("valued_on_forward") and (fm.get("forward_eps_change") or 0) <= -0.05:
+        risks.insert(0, f"Analysts expect earnings to fall {abs(fm['forward_eps_change']):.0%}: value and quality were "
+                        "judged on the lower forward figure")
     risks = warn_checks + risks
     if reg["max_equity_exposure"] < 1:
         risks.append(f"Market is risk-off: the system keeps only {reg['max_equity_exposure']:.0%} of money in stocks")
@@ -169,7 +172,9 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
             start = max(start, res + timedelta(days=AFTER_RESULTS_DAYS))  # only ever delays: never shortens cooling-off
             why.insert(0, f"Results are due {res:%d %b}: the buy waits until they're out and re-checked")
         action = "HOLD" if held else ("BUY" if start <= today else "BUY AFTER")
-        why.insert(0, f"Ranks {rank} of {r['ranked_peers']} after passing every safety gate")
+        unk = [u.replace("_", " ") for u in g["unknown"]]  # the item name, not its failure phrase
+        why.insert(0, f"Ranks {rank} of {r['ranked_peers']} after passing the safety gates" +
+                   (f" (1 non-critical item couldn't be verified: {unk[0]})" if unk else ""))
 
     # ---- conviction: transparent points, not a forecast ----
     pts, notes = 0, []

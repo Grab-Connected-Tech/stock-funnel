@@ -166,11 +166,11 @@ def stock_report(ticker: str, a: dict, st: dict, log: bool = True) -> dict:
     elif rank is None:
         verdict, detail = "REJECT", "too little data to score"
     elif rank <= n:
-        verdict, detail = "BUY CANDIDATE", f"rank {rank}/{len(sc)} in {universe}: inside the top {n}"
+        verdict, detail = "TOP RANKED", f"rank {rank}/{len(sc)} in {universe}: inside the top {n} (see the recommendation for the action)"
     elif rank <= buffer:
         verdict, detail = "HOLD ZONE", f"rank {rank}/{len(sc)}: fine to keep if owned (buffer {buffer}), not a new buy"
     else:
-        verdict, detail = "PASS (not a buy)", f"passes gates but ranks {rank}/{len(sc)}; better candidates exist"
+        verdict, detail = "BELOW BUFFER", f"passes gates but ranks {rank}/{len(sc)}; better candidates exist"
     m = a["metrics"].loc[ticker]
     pick = ["name", "sector", "market_cap", "pe", "roe", "roic", "debt_to_equity", "piotroski", "altman_z2", "beneish_m",
             "montier_c", "earnings_yield", "fcf_yield", "mom_12_1", "vol_1y", "max_dd_1y"]
@@ -316,7 +316,7 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
             shown[t] = {**f, "paper_action": f["action"]}
             continue
         rec = stock_report(t, a, state, log=official)["recommendation"]
-        shown[t] = {**f, "action": rec["action"], "start_date": rec["start_date"], "sell_date": rec.get("sell_date"),
+        shown[t] = {**f, "action": rec["action"], "action_label": rec["action_label"], "start_date": rec["start_date"], "sell_date": rec.get("sell_date"),
                     "conviction": rec["conviction"], "position_size": rec["position_size"], "why": rec["why"],
                     "risks": rec["risks"][:3], "reason": rec["why"][0] if rec["why"] else f["reason"],
                     "paper_action": f["action"], "paper_reason": f["reason"]}

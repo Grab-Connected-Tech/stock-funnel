@@ -337,8 +337,8 @@ const isIN = t => /\.(NS|BO)$/.test(t);
 let market = "IN";
 segment($("#searchForm .seg"), "mkt", m => { market = m; });
 const VERDICT = {
-  "BUY CANDIDATE": ["var(--good)", "✓"], "HOLD ZONE": ["var(--warn)", "◐"],
-  "PASS (not a buy)": ["var(--muted)", "–"], "REJECT": ["var(--crit)", "✕"], "NO DATA": ["var(--muted)", "?"],
+  "TOP RANKED": ["var(--good)", "✓"], "HOLD ZONE": ["var(--warn)", "◐"],
+  "BELOW BUFFER": ["var(--muted)", "–"], "REJECT": ["var(--crit)", "✕"], "NO DATA": ["var(--muted)", "?"],
 };
 const ACTION = {
   "BUY": ["var(--good)", "✓", "Buy"], "BUY AFTER": ["var(--good)", "◷", "Buy after"], "WAIT": ["var(--warn)", "◐", "Wait"],
@@ -535,7 +535,7 @@ function renderRun(r) {
     <div class="card"><h2>Recommendations</h2>
       <div class="filters">${["ALL", "BUY", "BUY AFTER", "WAIT", "HOLD", "SELL", "AVOID"].map(k => `<button data-f="${k}" aria-pressed="${actFilter === k}">${k === "ALL" ? "All" : k[0] + k.slice(1).toLowerCase()} ${k === "ALL" ? acts.length : counts[k] || 0}</button>`).join("")}</div>
       <div class="scroll"><table><thead><tr><th>Stock</th><th>Recommendation</th><th>Size</th><th>Why</th></tr></thead><tbody>
-      ${shown.map(([t, a]) => `<tr class="click" data-t="${esc(t)}"><td><b>${esc(t.replace(/\.NS$/, ""))}</b></td><td><span class="tag ${a.action.split(" ")[0]}">${a.action}</span>${a.start_date ? `<div class="small muted">from ${esc(a.start_date)}</div>` : ""}${a.conviction ? `<div class="small muted">${a.conviction} conviction</div>` : ""}</td>
+      ${shown.map(([t, a]) => `<tr class="click" data-t="${esc(t)}"><td><b>${esc(t.replace(/\.NS$/, ""))}</b></td><td><span class="tag ${a.action.split(" ")[0]}">${esc(a.action_label || a.action)}</span>${a.start_date ? `<div class="small muted">from ${esc(a.start_date)}</div>` : ""}${a.conviction ? `<div class="small muted">${a.conviction} conviction</div>` : ""}</td>
         <td class="num">${a.position_size ? pct(a.position_size) : "–"}</td><td class="small">${esc(a.reason)}${(a.review_reasons || []).length ? `<div class="muted">${esc(a.review_reasons.join("; "))}</div>` : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Nothing in this group.</td></tr>`}
       </tbody></table></div></div>
     <div class="card"><h2>Top ranked</h2><div class="scroll"><table><thead><tr><th>#</th><th>Stock</th><th>Sector</th><th>Score</th><th>Value</th><th>Quality</th><th>Momentum</th><th>Low vol</th><th>Yield</th></tr></thead><tbody>

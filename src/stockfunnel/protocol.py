@@ -77,7 +77,7 @@ FIELD_GUIDE = {
     "recommendation.signals": "hidden signals: insider buying, corporate red-flag filings, price tells, analyst revisions, "
                               "upcoming results date. POSITIVE | NEUTRAL | WARN | WAIT | FAIL | UNKNOWN. "
                               "revision_breadth is TRACKING ONLY: shown and graded, but it does not affect the action",
-    "verdict": "funnel stage result: BUY CANDIDATE (top 30) | HOLD ZONE | PASS (not a buy) | REJECT (failed a gate)",
+    "verdict": "funnel STAGE, not the action: TOP RANKED (top 30) | HOLD ZONE | BELOW BUFFER | REJECT (failed a gate). The action is recommendation.action",
     "rank / ranked_peers": "position among peers that passed every safety gate (1 = best)",
     "themes": "factor z-scores vs sector peers (0 = average, +1 = better than ~84%, -1 = worse than ~84%): "
               "value, quality, momentum, low_vol, yield",

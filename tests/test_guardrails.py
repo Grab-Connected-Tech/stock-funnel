@@ -194,6 +194,7 @@ def test_recommendation_rules():
 
 def test_hidden_signals():
     from stockfunnel import recommend, signals
+    signals._recent_results = lambda *a, **k: None  # offline: no earnings-calendar lookups
     m = pd.DataFrame({"sector": ["A"] * 8, "ret_1m": [0.02, 0.01, 0.03, 0.0, 0.02, 0.01, 0.02, -0.25],
                       "volume_spike_5d": [1.0] * 7 + [1.2], "ret_5d": [0.0] * 8}, index=[f"S{i}" for i in range(8)])
     assert signals.price_tells("S7", m)["status"] == "WAIT"                 # down 25% while sector flat
@@ -299,6 +300,19 @@ def test_second_review_fixes():
     assert recommend.build(base, {}, scored, {"status": "PASSED"}, {})["action_label"] == "BUY"
     drop = recommend.build(base, {"ret_1m": -0.15}, scored, {"status": "PASSED"}, {})
     assert any("last month" in x for x in drop["risks"])
+
+
+def test_third_review_fixes():
+    from stockfunnel import recommend
+    scored = pd.DataFrame({"rank": [1.0], "vol_1y": [0.2], "sector": ["A"], "score": [1.0]}, index=["X"])
+    base = {"ticker": "X", "as_of": "2026-10-27", "rank": 1, "ranked_peers": 1,
+            "themes": {"value": 1.0, "quality": 1.0, "momentum": 1.0, "low_vol": 1.0, "yield": 1.0},
+            "gates": {"failed": [], "unknown": ["interest_coverage"], "passed": True, "checks": {}}, "metrics": {},
+            "regime": {"max_equity_exposure": 1.0},
+            "your_book": {"held": False, "watchlist_since": "2026-10-01", "standing_veto": None}}
+    r = recommend.build(base, {"valued_on_forward": True, "forward_eps_change": -0.15}, scored, {"status": "PASSED"}, {})
+    assert "couldn't be verified: interest coverage" in r["why"][0]                 # gate text admits the unknown
+    assert any("judged on the lower forward figure" in x for x in r["risks"])      # forward decline is visible
 
 
 def test_india_tax_deferral():

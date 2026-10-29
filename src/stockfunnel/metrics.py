@@ -89,9 +89,19 @@ def fundamental_metrics(f: dict) -> dict:
     norm_ni = float(np.median(hist_ni)) if len(hist_ni) >= 3 else None
     earnings_vs_normal = div(ni_v, norm_ni) if norm_ni and norm_ni > 0 and ni_v else None
     peak = bool(earnings_vs_normal and earnings_vs_normal > GATES["peak_earnings_ratio"])
+    cur_ni, cur_ebit = ni_v, ebit_v
     if peak:
         ni_v = norm_ni
         ebit_v = float(np.median(hist_ebit)) if len(hist_ebit) >= 3 else ebit_v
+    # Conservative earnings: if consensus expects profit to FALL, judge value and quality on the lower
+    # forward figure. No threshold to fit, and one-sided: forecasts can lower a valuation, never raise it.
+    # Not for REITs: their GAAP EPS swings with depreciation and property sales (they're judged on FFO).
+    fwd = info.get("forwardEps"), info.get("trailingEps")
+    fwd_change = fwd[0] / fwd[1] - 1 if fwd[0] and fwd[1] and fwd[1] > 0 else None
+    forward_lower = bool(fwd_change is not None and fwd_change < 0 and not is_reit and cur_ni and cur_ni > 0)
+    if forward_lower:
+        ni_v = min(ni_v, cur_ni * (1 + fwd_change))
+        ebit_v = min(ebit_v, cur_ebit * (1 + fwd_change)) if cur_ebit else ebit_v
 
     # REIT funds from operations ~ NAREIT FFO: net income + real-estate depreciation, minus gains on
     # property sales (cash-flow reconciling lines carry gains with a negative sign, so they are added).
@@ -110,8 +120,8 @@ def fundamental_metrics(f: dict) -> dict:
         "is_reit": is_reit,
         "earnings_vs_normal": round(earnings_vs_normal, 3) if earnings_vs_normal else None,
         "peak_cycle_earnings": peak,
-        "forward_eps_change": (info["forwardEps"] / info["trailingEps"] - 1)
-        if info.get("forwardEps") and info.get("trailingEps") and info["trailingEps"] > 0 else None,
+        "forward_eps_change": fwd_change,
+        "valued_on_forward": forward_lower,
         "market_cap": mcap,
         "currency": info.get("currency"),
         "years_of_statements": int(inc.shape[1]) if inc is not None and not inc.empty else 0,

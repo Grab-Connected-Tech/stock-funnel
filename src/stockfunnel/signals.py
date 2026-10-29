@@ -149,18 +149,35 @@ def events(ticker: str, is_financial: bool = False) -> dict:
 
 # ---------------- 3. price tells ----------------
 
-def price_tells(ticker: str, metrics: pd.DataFrame) -> dict:
+def _recent_results(ticker: str, as_of: date, days: int = 14) -> date | None:
+    """Most recent results date within `days` before as_of (yfinance earnings history), else None."""
+    import yfinance as yf
+    try:
+        idx = _cached(f"yf_earn_dates_{ticker}", lambda: list(yf.Ticker(ticker).get_earnings_dates(limit=8).index),
+                      max_age_days=1)
+    except Exception:  # noqa: BLE001 - this only refines the wording
+        return None
+    past = [d.date() for d in idx if as_of - timedelta(days=days) <= d.date() <= as_of]
+    return max(past) if past else None
+
+
+def price_tells(ticker: str, metrics: pd.DataFrame, as_of: date | None = None) -> dict:
     """Bad news often shows in price before it shows in print."""
     m = metrics.loc[ticker]
     spike, r5 = m.get("volume_spike_5d"), m.get("ret_5d")
     if spike is not None and r5 is not None and spike >= VOLUME_SPIKE and r5 < -0.05:
-        return {"status": "WAIT", "detail": f"volume {spike:.1f}× normal while the price fell {abs(r5):.0%} this week"}
+        res = _recent_results(ticker, as_of or date.today())
+        why = (f"after results on {res:%d %b}: the market is still digesting the numbers" if res
+               else "with no results in the last two weeks: possible unreported news")
+        return {"status": "WAIT", "detail": f"volume {spike:.1f}× normal while the price fell {abs(r5):.0%} this week, {why}"}
     peers = metrics[(metrics["sector"] == m.get("sector")) & metrics["ret_1m"].notna()]["ret_1m"]
     if len(peers) >= 5 and m.get("ret_1m") is not None:
         gap = (m["ret_1m"] - peers.median()) / (peers.std() or np.nan)
         if gap <= -SECTOR_GAP_SD and m["ret_1m"] < -0.10:
+            res = _recent_results(ticker, as_of or date.today(), days=31)
+            why = f"after results on {res:%d %b}" if res else "possible unreported stock-specific news"
             return {"status": "WAIT", "detail": f"down {abs(m['ret_1m']):.0%} this month while its sector was "
-                                                f"{peers.median():+.0%}: possible unreported stock-specific news"}
+                                                f"{peers.median():+.0%}: {why}"}
     return {"status": "NEUTRAL", "detail": "trading in line with its sector"}
 
 
@@ -283,7 +300,10 @@ def forward_earnings(ticker: str, metrics: pd.DataFrame) -> dict:
     chg = metrics.loc[ticker].get("forward_eps_change")
     if chg is None or chg != chg:
         return {"status": "NEUTRAL", "detail": "no forward estimate in the data source"}
-    detail = f"consensus forward EPS {chg:+.0%} vs trailing (tracking only, not used in decisions yet)"
+    used = bool(metrics.loc[ticker].get("valued_on_forward"))
+    detail = (f"consensus forward EPS {chg:+.0%} vs trailing" +
+              ("; valuation already uses the lower forward figure" if used else "") +
+              " (this signal's conviction effect is tracking only)")
     return {"status": "WARN" if chg <= FORWARD_DROP else "NEUTRAL", "detail": detail}
 
 
@@ -309,7 +329,7 @@ def run(ticker: str, metrics: pd.DataFrame, as_of: date | str | None = None) -> 
     as_of = date.fromisoformat(as_of) if isinstance(as_of, str) else as_of
     out = {"insider_activity": _check(lambda: insiders(ticker)),
            "corporate_events": _check(lambda: events(ticker, bool(metrics.loc[ticker].get("is_financial")))),
-           "price_behaviour": _check(lambda: price_tells(ticker, metrics)),
+           "price_behaviour": _check(lambda: price_tells(ticker, metrics, as_of)),
            "analyst_revisions": _check(lambda: revisions(ticker)),
            "upcoming_results": _check(lambda: upcoming_results(ticker, as_of))}
     out["revision_breadth"] = _check(lambda: revision_breadth(ticker))  # after revisions(): reuses its cache

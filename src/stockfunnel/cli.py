@@ -24,7 +24,7 @@ def render(r: dict) -> str:
            "| Ticker | Recommendation | Conviction | Size | Why | Paper book |", "|---|---|---|---|---|---|"]
     order = {a: i for i, a in enumerate(("BUY", "BUY AFTER", "SELL", "TRIM", "HOLD", "WAIT", "WATCH", "AVOID"))}
     for t, a in sorted(r["actions"].items(), key=lambda kv: (order.get(kv[1]["action"], 9), kv[0])):
-        act = a["action"] + (f" {a['start_date']}" if a.get("start_date") else "") + (f" (sell {a['sell_date']})" if a.get("sell_date") else "")
+        act = a.get("action_label", a["action"]) + (f" {a['start_date']}" if a.get("start_date") else "") + (f" (sell {a['sell_date']})" if a.get("sell_date") else "")
         flag = " ⚠ human review" if a.get("human_review") else ""
         size = f"{a['position_size']:.1%}" if a.get("position_size") else "–"
         out.append(f"| {t} | **{act}**{flag} | {a.get('conviction') or '–'} | {size} | {a['reason']} | {a.get('paper_action', '')} |")
@@ -76,7 +76,7 @@ def render_stock(r: dict) -> str:
         out.append(f"Conviction tally ({rec['conviction_score']} pts): {', '.join(rec['conviction_points'])}")
     out.append(f"_Evidence scope: {rec['evidence_scope']}_")
     out += [f"Next review: {rec['next_review']}", "", "## Details", "",
-           f"**Verdict: {r['verdict']}**: {r['detail']}",
+           f"**Funnel stage: {r['verdict']}**: {r['detail']}",
            f"Peers: {r['peer_universe']}" + ("" if r["member"] else " (not a member; ranked alongside it)"),
            f"Regime: {reg['label']}, max equity {reg['max_equity_exposure']:.0%}", ""]
     if r["themes"]:
