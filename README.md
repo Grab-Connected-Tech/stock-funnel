@@ -89,6 +89,10 @@ Claude Desktop is configured in `~/Library/Application Support/Claude/claude_des
 - **Tools:** `market_regime`, `analyze_stock`, `run_funnel`, `get_review_packet`, `submit_review`, `portfolio_status`, `track_record`, `explain_policy`. `analyze_stock` and `run_funnel` return structured JSON by default; pass `format: "markdown"` for prose.
 - **Judgement protocol:** sent automatically as the server's instructions, and also available as the resource `stockfunnel://protocol`. In short, the tool decides and the model explains. The model must never upgrade an action, may quote only numbers from the tool, and must label any outside knowledge as "Outside the tool:", which can only add caution. It is defined in [protocol.py](src/stockfunnel/protocol.py).
 - **Field guide:** `stockfunnel://field-guide` explains every JSON field.
+- **Hindsight replays:**
+  - `replay_benchmark(universe, months_back, compare_tickers)` rebuilds what the framework would have held at each look-back, using only that date's data. It returns the framework's performance to today next to the equal-weight universe, real benchmark ETFs and any tickers you pass, with `framework_minus` gaps for easy benchmarking.
+  - `replay_monthly` repeats the replay at every month-end.
+  - These are hindsight tests, kept out of the live track record. CLI equivalent: `stockfunnel replay sp500 --benchmark 3,6,12 --compare AAPL,MSFT`.
 - **`plan_investment(amount, market, months, target_monthly_return)`** turns an amount into share counts with buy-from dates. It recommends the index ETF when the amount is too small to diversify, holds back cash in risk-off markets, and answers return hopes with historical odds, never a forecast.
 - **Prompts:** `judge_stock(ticker)` and `screen_market(universe)` walk a model through the protocol step by step.
 - **Without MCP:** the web server publishes an OpenAPI spec at `http://127.0.0.1:8765/openapi.json`, with the protocol in its description. The endpoints are `/api/analyze`, `/api/regime`, `/api/run`, `/api/validation`, `/api/status`, `/api/track_record` and `/api/protocol`.

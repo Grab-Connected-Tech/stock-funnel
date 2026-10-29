@@ -183,3 +183,87 @@ def save(name: str, obj: dict) -> Path:
     p = OUT / f"{date.today().isoformat()}-{name}.json"
     p.write_text(json.dumps(obj, indent=2, default=str))
     return p
+
+
+# ---------------- benchmarking API (used by MCP / CLI) ----------------
+
+BENCHMARK_ETFS = {"US": {"SPY": "S&P 500 (SPY)", "RSP": "S&P 500 equal-weight (RSP)"},
+                  "IN": {"NIFTYBEES.NS": "Nifty 50 (NIFTYBEES)", "JUNIORBEES.NS": "Nifty Next 50 (JUNIORBEES)"}}
+MIN_RANKED_SHARE = 0.3  # below this share of the universe passing the gates, the window lacks the data to judge
+
+
+def _framework_weights(a: dict) -> pd.Series:
+    """The portfolio the framework would have held: top-N, inverse-vol, capped, regime-scaled (rest in cash)."""
+    from .portfolio import capped_weights
+    market, sc = a["market"], a["scored"]
+    book = sc[sc["rank"] <= PORTFOLIO["n_holdings"][market]].dropna(subset=["vol_1y"])
+    if book.empty:
+        return pd.Series(dtype=float)
+    w = capped_weights(1 / book["vol_1y"], book["sector"], PORTFOLIO["max_weight"][market], PORTFOLIO["max_sector_weight"])
+    w = w[w >= PORTFOLIO["min_weight"]]
+    return w / w.sum() * a["regime"]["max_equity_exposure"]
+
+
+def benchmark(universe: str, months_back: list[int], compare_tickers: list[str] | None = None) -> dict:
+    """For each look-back window: what the framework would have held then (data of that date only), and the
+    return of that portfolio, its top 5, the equal-weight universe, benchmark ETFs and any caller-supplied
+    tickers, all measured over the SAME period (start date -> latest data). Returns are decimals (0.05 = +5%)."""
+    market, tickers = data.universe(universe)
+    etfs = BENCHMARK_ETFS[market]
+    compare = [t.strip().upper() for t in (compare_tickers or []) if t.strip()]
+    close_all = data.prices(tickers + [data.MARKETS[market]["benchmark"]], period="20y")["close"].dropna(how="all")
+    extra = data.prices(sorted(set(etfs) | set(compare)), period="20y")["close"].dropna(how="all")
+    latest = close_all.index[-1].tz_localize(None)
+    windows = []
+    for m in sorted(set(int(x) for x in months_back)):
+        as_of = (latest - pd.DateOffset(months=m)).normalize().date().isoformat()
+        a = analyze_as_of(universe, as_of)
+        sc = a["scored"]
+        sufficient = len(sc) >= MIN_RANKED_SHARE * len(a["universe_tickers"])
+        uni = _fwd(close_all, a["universe_tickers"], a["as_of"])
+        ret = {"equal_weight_universe": round(float(uni.mean()), 4)}
+        ref = _fwd(extra, list(etfs), a["as_of"])
+        ret |= {etfs[t]: round(float(ref[t]), 4) for t in etfs if t in ref}
+        w = _framework_weights(a) if sufficient else pd.Series(dtype=float)
+        holdings, top5 = [], []
+        if sufficient and not w.empty:
+            r = _fwd(close_all, list(w.index), a["as_of"])
+            ret["framework_portfolio"] = round(float((w.reindex(r.index).fillna(0) * r).sum()), 4)
+            t5 = list(sc.index[:5])
+            r5 = _fwd(close_all, t5, a["as_of"])
+            ret["framework_top5_equal_weight"] = round(float(r5.mean()), 4)
+            top5 = [{"rank": i + 1, "ticker": t, "name": sc.at[t, "name"] if "name" in sc else None,
+                     "return": round(float(r5.get(t, np.nan)), 4)} for i, t in enumerate(t5)]
+            holdings = [{"ticker": t, "weight": round(float(wt), 4), "return": round(float(r.get(t, np.nan)), 4)}
+                        for t, wt in w.sort_values(ascending=False).items()]
+        yours = {}
+        if compare:
+            rc = _fwd(extra, compare, a["as_of"])
+            yours = {t: (round(float(rc[t]), 4) if t in rc else None) for t in compare}
+            got = [v for v in yours.values() if v is not None]
+            if got:
+                ret["your_tickers_equal_weight"] = round(float(np.mean(got)), 4)
+        fw = ret.get("framework_portfolio")
+        windows.append({
+            "window": f"{m} months", "as_of": a["as_of"], "graded_to": str(latest.date()),
+            "data_sufficient": bool(sufficient),
+            "data_note": None if sufficient else (f"only {len(sc)} of {len(a['universe_tickers'])} stocks had enough published "
+                                                  "statements to pass the gates on this date; framework result omitted"),
+            "regime_then": a["regime"]["label"], "equity_exposure_then": a["regime"]["max_equity_exposure"],
+            "returns": ret,
+            "framework_minus": ({k: round(fw - v, 4) for k, v in ret.items() if k != "framework_portfolio"} if fw is not None else None),
+            "framework_top5": top5, "framework_holdings": holdings, "your_tickers": yours or None,
+        })
+    return {
+        "universe": universe, "market": market, "units": "returns are decimals from as_of close to graded_to close",
+        "method": "Hindsight replay: the funnel's core (data quality, safety gates, scoring, regime) re-run with only data "
+                  "available on each as_of date; statements count once their legal reporting deadline has passed. "
+                  "framework_portfolio = top 30 at inverse-volatility weights, scaled by the regime (cash earns 0), "
+                  "held unchanged to graded_to. Benchmarks are real ETFs including dividends.",
+        "windows": windows,
+        "caveats": ["Hindsight test, NOT part of the live track record (see track_record for real, recorded-in-advance calls).",
+                    "Uses today's index members: mild survivorship bias in the universe.",
+                    "Uses the latest (restated) statements; live-only checks and signals are switched off.",
+                    "Each window is a single start date: treat as anecdote; use replay_monthly for a steadier read.",
+                    "Holding the portfolio unchanged ignores the framework's monthly rebalancing and sell rules."],
+    }

@@ -111,6 +111,31 @@ def track_record() -> str:
 
 
 @mcp.tool()
+def replay_benchmark(universe: str = "sp500", months_back: list[int] | None = None,
+                     compare_tickers: list[str] | None = None) -> str:
+    """HINDSIGHT TEST. Rewind to each look-back (default 3, 6, 12 months; 36 is often data-limited), rebuild what the
+    framework would have held using only data from that date, and return its performance to today next to the
+    equal-weight universe, real benchmark ETFs, and any tickers you pass in compare_tickers (e.g. your own picks or a
+    reference basket), all over the same period. Use framework_minus for quick benchmarking. Results are hindsight
+    experiments, never part of the live track record; respect data_sufficient and the caveats. Slow: ~1 min per window."""
+    if err := _bad_universe(universe):
+        return err
+    from .replay import benchmark
+    return dumps(benchmark(universe, months_back or [3, 6, 12], compare_tickers))
+
+
+@mcp.tool()
+def replay_monthly(universe: str = "sp500", months: int = 24) -> str:
+    """HINDSIGHT TEST over many start dates: replay at every month-end for the last `months`, grading each over the
+    next 3 months. Returns how often the framework's top 5 / top 30 beat the equal-weight universe and whether avoided
+    stocks lagged. Steadier than single windows (still overlapping, still hindsight). Slow: several minutes."""
+    if err := _bad_universe(universe):
+        return err
+    from .replay import multi_date
+    return dumps(multi_date(universe, months))
+
+
+@mcp.tool()
 def explain_policy() -> str:
     """The frozen rules (gates, weights, sizing, risk limits). Read-only."""
     to_dict = lambda m: {k: (to_dict(v) if hasattr(v, "items") else v) for k, v in m.items()}  # noqa: E731

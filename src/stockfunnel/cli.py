@@ -138,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("universe")
     p.add_argument("--months", type=int, default=3, help="how far back (single replay)")
     p.add_argument("--multi", type=int, metavar="N", help="instead: replay every month-end over the last N months")
+    p.add_argument("--benchmark", metavar="MONTHS", help="instead: framework vs ETFs over look-backs, e.g. 3,6,12,36")
+    p.add_argument("--compare", metavar="TICKERS", help="with --benchmark: your own tickers to compare, e.g. AAPL,MSFT")
     a = ap.parse_args(argv)
 
     if a.cmd == "run":
@@ -212,8 +214,14 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(scorecard.grade(), indent=2))
     elif a.cmd == "replay":
         from . import replay
-        out = replay.multi_date(a.universe, a.multi) if a.multi else replay.top_picks(a.universe, a.months)
-        path = replay.save(f"{a.universe}-{'multi' + str(a.multi) if a.multi else str(a.months) + 'm'}", out)
+        if a.benchmark:
+            out = replay.benchmark(a.universe, [int(x) for x in a.benchmark.split(",")],
+                                   a.compare.split(",") if a.compare else None)
+            name = f"{a.universe}-benchmark"
+        else:
+            out = replay.multi_date(a.universe, a.multi) if a.multi else replay.top_picks(a.universe, a.months)
+            name = f"{a.universe}-{'multi' + str(a.multi) if a.multi else str(a.months) + 'm'}"
+        path = replay.save(name, out)
         print(json.dumps(out | {"saved_to": str(path)}, indent=2, default=str))
     elif a.cmd == "verify-journal":
         ok = journal.verify()

@@ -16,7 +16,10 @@ from pathlib import Path
 
 import pandas as pd
 
-warnings.filterwarnings("ignore", category=pd.errors.Pandas4Warning)  # yfinance vs pandas 3 deprecation noise
+for _w in ("Pandas4Warning", "Pandas5Warning", "PandasDeprecationWarning", "PandasFutureWarning",
+           "PandasPendingDeprecationWarning", "PandasChangeWarning"):  # yfinance vs pandas 3 deprecation noise
+    if hasattr(pd.errors, _w):
+        warnings.filterwarnings("ignore", category=getattr(pd.errors, _w))
 import yfinance as yf  # noqa: E402
 
 CACHE = Path.home() / ".cache" / "stockfunnel"
