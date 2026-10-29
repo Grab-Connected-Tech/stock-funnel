@@ -48,6 +48,16 @@ def run_funnel(universe: str, mode: str = "manual") -> str:
 
 
 @mcp.tool()
+def analyze_stock(ticker: str, universe: str | None = None) -> str:
+    """Full verdict for ONE stock (e.g. 'AAPL', 'TCS.NS'): hard gates, rank and factor scores vs its peer
+    universe (default sp500 / nifty200), regime, and status in the paper book. Read-only."""
+    if universe is not None and universe not in data.UNIVERSES:
+        return f"unknown universe; choose one of {sorted(data.UNIVERSES)}"
+    from .cli import render_stock
+    return render_stock(funnel.analyze_stock(ticker, universe))
+
+
+@mcp.tool()
 def get_review_packet(universe: str, ticker: str) -> str:
     """Facts, schema and instructions for reviewing one candidate. Cite fact_ids; don't use outside numbers."""
     if universe not in data.UNIVERSES:

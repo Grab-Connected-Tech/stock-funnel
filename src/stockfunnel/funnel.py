@@ -35,10 +35,13 @@ def _fund_metrics(t: str) -> dict:
     return {"data_error": "rate limited"}
 
 
-def analyze_universe(universe: str, limit: int | None = None, extra: list[str] | None = None) -> dict:
-    """extra: tickers priced but not ranked (e.g. holdings that left the universe)."""
+def analyze_universe(universe: str, limit: int | None = None, extra: list[str] | None = None,
+                     include: list[str] | None = None) -> dict:
+    """extra: tickers priced but not ranked (e.g. holdings that left the universe).
+    include: non-member tickers to gate and rank alongside the universe (single-stock analysis)."""
     market, tickers = data.universe(universe)
     tickers = tickers[:limit] if limit else tickers
+    tickers = tickers + [t for t in include or [] if t not in tickers]
     reg = regime.assess(market)
     px = data.prices(sorted(set(tickers) | set(extra or [])), period="2y")
     raw_close, vol = px["close"], px["volume"]
@@ -117,6 +120,55 @@ def save_review(market: str, as_of: str, t: str, rev: dict) -> list[str]:
     existing.append(rev)
     p.write_text(json.dumps(existing, indent=2))
     return existing
+
+
+DEFAULT_PEERS = {"US": "sp500", "IN": "nifty200"}
+
+
+def analyze_stock(ticker: str, universe: str | None = None) -> dict:
+    """One stock, judged exactly as the funnel would: gated and ranked against its peer universe.
+    Read-only: never touches the book, watchlist or vetoes."""
+    from .policy import PORTFOLIO
+    market = data.market_of(ticker)
+    universe = universe or DEFAULT_PEERS[market]
+    members = data.universe(universe)[1]
+    a = analyze_universe(universe, include=[ticker])
+    if ticker not in a["metrics"].index or a["metrics"].at[ticker, "history_days"] == 0:
+        return {"ticker": ticker, "verdict": "NO DATA", "detail": "no price history (check the symbol; India needs .NS)"}
+    g, sc = a["gates"][ticker], a["scored"]
+    n, buffer = PORTFOLIO["n_holdings"][market], PORTFOLIO["hold_until_rank"][market]
+    rank = int(sc.at[ticker, "rank"]) if ticker in sc.index and pd.notna(sc.at[ticker, "rank"]) else None
+    if g["failed"]:
+        verdict, detail = "REJECT", f"fails hard gates: {', '.join(g['failed'])}"
+    elif not g["passed"]:
+        verdict, detail = "REJECT", f"can't verify: {', '.join(g['unknown'])} (fail-closed)"
+    elif rank is None:
+        verdict, detail = "REJECT", "too little data to score"
+    elif rank <= n:
+        verdict, detail = "BUY CANDIDATE", (f"rank {rank}/{len(sc)} in {universe}: inside the top {n}. Still needs the "
+                                            f"cooling-off period and 2 independent reviews before any buy")
+    elif rank <= buffer:
+        verdict, detail = "HOLD ZONE", f"rank {rank}/{len(sc)}: fine to keep if owned (buffer {buffer}), not a new buy"
+    else:
+        verdict, detail = "PASS (not a buy)", f"passes gates but ranks {rank}/{len(sc)}; better candidates exist"
+    st = broker.load(market)
+    m = a["metrics"].loc[ticker]
+    pick = ["name", "sector", "market_cap", "pe", "roe", "roic", "debt_to_equity", "piotroski", "altman_z2", "beneish_m",
+            "montier_c", "earnings_yield", "fcf_yield", "mom_12_1", "vol_1y", "max_dd_1y"]
+    return {
+        "ticker": ticker, "as_of": a["as_of"], "peer_universe": universe, "member": ticker in members,
+        "verdict": verdict, "detail": detail,
+        "rank": rank, "ranked_peers": len(sc),
+        "score": None if rank is None else round(float(sc.at[ticker, "score"]), 3),
+        "themes": {} if rank is None else {c[6:]: round(float(sc.at[ticker, c]), 2) for c in sc.columns
+                                           if c.startswith("theme_") and pd.notna(sc.at[ticker, c])},
+        "gates": g, "regime": a["regime"],
+        "metrics": {k: (round(v, 4) if isinstance(v, float) else v) for k, v in m.items()
+                    if k in pick and not (isinstance(v, float) and np.isnan(v))},
+        "your_book": {"held": ticker in st["positions"], "watchlist_since": st["watchlist"].get(ticker),
+                      "standing_veto": st.get("vetoes", {}).get(ticker)},
+        "manual_checks": gates.MANUAL_CHECKS[market],
+    }
 
 
 def record_review(universe: str, ticker: str, rev, reviewer_id: str) -> dict:

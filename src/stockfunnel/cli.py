@@ -49,6 +49,28 @@ def render(r: dict) -> str:
     return "\n".join(out)
 
 
+def render_stock(r: dict) -> str:
+    if r["verdict"] == "NO DATA":
+        return f"{r['ticker']}: {r['detail']}"
+    m, reg, b = r["metrics"], r["regime"], r["your_book"]
+    out = [f"# {r['ticker']} · {m.get('name', '')} · {m.get('sector', '')} · {r['as_of']}", "",
+           f"**Verdict: {r['verdict']}**: {r['detail']}",
+           f"Peers: {r['peer_universe']}" + ("" if r["member"] else " (not a member; ranked alongside it)"),
+           f"Regime: {reg['label']}, max equity {reg['max_equity_exposure']:.0%}", ""]
+    if r["themes"]:
+        out += ["| Theme | z-score vs sector peers |", "|---|---|"] + [f"| {k} | {v:+.2f} |" for k, v in r["themes"].items()]
+    checks = r["gates"]["checks"]
+    bad = ", ".join(f"{k} ({v})" for k, v in checks.items() if v != "PASS")
+    passing = sum(v == "PASS" for v in checks.values())
+    out += ["", f"Gates: {passing}/{len(checks)} pass" + (f"; not passing: {bad}" if bad else ""), ""]
+    out += ["Key metrics: " + ", ".join(f"{k} {v:.3g}" if isinstance(v, float) else f"{k} {v}" for k, v in m.items()
+                                       if k not in ("name", "sector"))]
+    if b["held"] or b["watchlist_since"] or b["standing_veto"]:
+        out.append(f"Your book: held={b['held']}, watchlist since {b['watchlist_since']}, veto={b['standing_veto']}")
+    out += ["", "Before real money:"] + [f"- [ ] {c}" for c in r["manual_checks"]]
+    return "\n".join(out)
+
+
 def _validation_line(v: dict) -> str:
     if v["status"] in ("NOT_RUN", "STALE"):
         return f"**Evidence**: ⚠ {v['status']}: {v['note']}"
@@ -70,8 +92,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, help="only the first N tickers (testing)")
     p.add_argument("--json", action="store_true")
     sub.add_parser("regime", help="market regime").add_argument("market", choices=["US", "IN"])
-    p = sub.add_parser("analyze", help="metrics + gates for one ticker")
-    p.add_argument("ticker")
+    p = sub.add_parser("analyze", help="full verdict for one stock, ranked against its peers")
+    p.add_argument("ticker", help="e.g. AAPL, TCS.NS")
+    p.add_argument("--universe", help="peer universe (default: sp500 for US, nifty200 for India)")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("packet", help="review packet for an LLM/human reviewer")
     p.add_argument("universe"); p.add_argument("ticker")  # noqa: E702
     p = sub.add_parser("review", help="validate + store a review JSON")
@@ -98,10 +122,8 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "regime":
         print(json.dumps(regime.assess(a.market), indent=2))
     elif a.cmd == "analyze":
-        m = data.market_of(a.ticker)
-        px = data.prices([a.ticker], "2y")
-        mm = metrics.price_metrics(px["close"][a.ticker], px["volume"][a.ticker]) | metrics.fundamental_metrics(data.fundamentals(a.ticker))
-        print(json.dumps({"metrics": mm, "gates": gates.evaluate(mm, m), "manual_checks": gates.MANUAL_CHECKS[m]}, indent=2, default=str))
+        r = funnel.analyze_stock(a.ticker, a.universe)
+        print(json.dumps(r, indent=2, default=str) if a.json else render_stock(r))
     elif a.cmd == "packet":
         an = funnel.analyze_universe(a.universe)
         print(json.dumps(funnel.review_packet(a.ticker, an), indent=2, default=str))

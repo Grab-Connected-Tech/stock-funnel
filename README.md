@@ -30,7 +30,7 @@ uv sync --extra mcp
 uv run stockfunnel regime IN                 # market regime
 uv run stockfunnel validate nifty200         # 20y walk-forward backtest + deflated Sharpe
 uv run stockfunnel run nifty200              # manual mode: recommendations report
-uv run stockfunnel analyze RELIANCE.NS       # metrics + gate results for one stock
+uv run stockfunnel analyze TCS.NS            # one stock: verdict, gates, rank vs peers, factor scores
 uv run stockfunnel run sp500 --mode autopilot   # paper-trade (BUYs need reviews)
 uv run stockfunnel status IN                 # paper book, drawdown, kill-switch state
 uv run python tests/test_guardrails.py       # self-check of the guardrails
@@ -67,7 +67,7 @@ Reports are written to `reports/`, paper books to `state/`, reviews to `reviews/
     "command": "uv", "args": ["--directory", "/Users/abhilashreddy/Projects/stock-funnel", "run", "stockfunnel-mcp"],
     "env": { "STOCKFUNNEL_REVIEWER_ID": "claude" } } } }
 ```
-Tools: `market_regime`, `run_funnel`, `get_review_packet`, `submit_review`, `portfolio_status`, `explain_policy`. There are deliberately no tools to edit policy, override gates, reset a halt, or place arbitrary orders.
+Tools: `market_regime`, `analyze_stock`, `run_funnel`, `get_review_packet`, `submit_review`, `portfolio_status`, `explain_policy`. There are deliberately no tools to edit policy, override gates, reset a halt, or place arbitrary orders.
 
 Complementary official MCP servers (see [data-sources.md](docs/research/data-sources.md)):
 - Zerodha Kite MCP for Indian broker data
