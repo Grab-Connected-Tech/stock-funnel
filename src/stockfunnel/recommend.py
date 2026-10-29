@@ -107,6 +107,9 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     for x in near:
         if x["margin"] < NEAR:
             risks.append(f"{x['label']} is close to the rejection line ({x['value']} vs limit {x['limit']})")
+    if fm.get("peak_cycle_earnings"):
+        warn_checks.append(f"possible peak-cycle earnings: current profit is {fm['earnings_vs_normal']:.1f}× its multi-year "
+                           "average, so value and quality were judged on the average")
     risks = warn_checks + risks
     if reg["max_equity_exposure"] < 1:
         risks.append(f"Market is risk-off: the system keeps only {reg['max_equity_exposure']:.0%} of money in stocks")

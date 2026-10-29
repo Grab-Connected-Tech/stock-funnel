@@ -2,6 +2,7 @@
 then a frozen weighted sum (docs/research/factors.md)."""
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from .policy import MIN_THEMES, MISSING_THEME_Z, WEIGHTS
@@ -17,6 +18,9 @@ THEMES = {
 # Financials: EBIT/EV, sales/EV, GP/A and D/E are meaningless for banks/insurers.
 FINANCIAL_OVERRIDES = {"value": [("earnings_to_price", 1), ("book_to_price", 1)],
                        "quality": [("roe", 1), ("roa", 1), ("earnings_variability", -1)]}
+# REITs: ROE and D/E mislead (depreciation shrinks equity); the industry measures are FFO-based.
+REIT_OVERRIDES = {"value": [("ffo_yield", 1)],
+                  "quality": [("ffo_to_assets", 1), ("net_debt_to_ebitda", -1), ("earnings_variability", -1)]}
 
 
 def _z(s: pd.Series) -> pd.Series:
@@ -45,14 +49,15 @@ def composite(df: pd.DataFrame, market: str, momentum_crash_guard: bool = False)
         weights["quality"] += weights["momentum"] / 2
         weights["momentum"] /= 2
 
+    flag = lambda c: out[c].fillna(False).astype(bool) if c in out else pd.Series(False, index=out.index)  # noqa: E731
+    kind = np.where(flag("is_reit"), "reit", np.where(flag("is_financial"), "fin", "other"))
     for theme, comps in THEMES.items():
         z = {}
-        for fin in (False, True):
-            rows = out["is_financial"].fillna(False) == fin
-            use = FINANCIAL_OVERRIDES.get(theme, comps) if fin else comps
-            sub = out[rows]
+        for k, overrides in (("other", {}), ("fin", FINANCIAL_OVERRIDES), ("reit", REIT_OVERRIDES)):
+            sub = out[kind == k]
+            use = overrides.get(theme, comps)
             parts = [_sector_z(sub, c) * sign for c, sign in use if c in sub]
-            z[fin] = pd.concat(parts, axis=1).mean(axis=1) if parts else pd.Series(dtype=float, index=sub.index)
+            z[k] = pd.concat(parts, axis=1).mean(axis=1) if parts else pd.Series(dtype=float, index=sub.index)
         out[f"theme_{theme}"] = _z(pd.concat(z.values()).reindex(out.index))
 
     theme_cols = [f"theme_{t}" for t in THEMES]

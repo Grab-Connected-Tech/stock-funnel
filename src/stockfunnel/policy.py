@@ -23,6 +23,13 @@ GATES = Frozen({
     "max_vol_percentile": 0.90,        # drop top-decile volatility (lottery stocks)
     "max_debt_to_equity": 2.0,         # non-financials
     "min_interest_coverage": 3.0,
+    # REITs: depreciation shrinks book equity AND book assets, so D/E, ROE and debt/assets all mislead;
+    # the industry measures leverage as net debt / EBITDA (healthy REITs run ~5-7x).
+    "reit_max_net_debt_to_ebitda": 7.5,
+    "reit_min_interest_coverage": 2.0,
+    # Earnings this far above their multi-year average are treated as possible peak-cycle (Graham):
+    # value and quality are then judged on the average instead.
+    "peak_earnings_ratio": 1.5,
     "max_unknown_gates": 1,            # tolerated among non-forensic solvency items only (see gates.py)
 })
 

@@ -7,6 +7,7 @@ import pandas as pd
 
 from . import accounting as acc
 from .accounting import item
+from .policy import GATES
 
 FINANCIAL_SECTORS = {"Financial Services", "Financials"}  # + REITs below; developers get full forensic gates
 
@@ -75,13 +76,39 @@ def fundamental_metrics(f: dict) -> dict:
     cfos = [item(cf, acc.CFO, y) for y in range(3)]
     tas = [item(bal, acc.TA, y) for y in range(4)]
     roas = [nis[y] / tas[y] for y in range(4) if nis[y] is not None and tas[y]]
-    is_fin = sector in FINANCIAL_SECTORS or "REIT" in str(info.get("industry") or "")
+    is_fin = sector in FINANCIAL_SECTORS
+    is_reit = "REIT" in str(info.get("industry") or "")
     div = lambda a, b: None if a is None or not b else a / b  # noqa: E731
+
+    # Normalized earnings (Graham): if current profit is far above its multi-year average, value and
+    # quality use the average so peak-cycle profits don't masquerade as cheapness or quality. One-sided
+    # on purpose: a trough never makes a stock look better than its current numbers.
+    hist_ni = [x for x in nis if x is not None]
+    hist_ebit = [x for x in (item(inc, acc.EBIT, y) for y in range(4)) if x is not None]
+    norm_ni = float(np.mean(hist_ni)) if len(hist_ni) >= 3 else None
+    earnings_vs_normal = div(ni_v, norm_ni) if norm_ni and norm_ni > 0 and ni_v else None
+    peak = bool(earnings_vs_normal and earnings_vs_normal > GATES["peak_earnings_ratio"])
+    if peak:
+        ni_v = norm_ni
+        ebit_v = float(np.mean(hist_ebit)) if len(hist_ebit) >= 3 else ebit_v
+
+    # REIT funds from operations ~ NAREIT FFO: net income + real-estate depreciation, minus gains on
+    # property sales (cash-flow reconciling lines carry gains with a negative sign, so they are added).
+    # ponytail: approximates FFO from yfinance lines; upgrade path is reported FFO from 10-K supplements.
+    ffo = None
+    if is_reit and ni is not None:
+        dep = item(cf, ["Depreciation And Amortization", "Depreciation Amortization Depletion"]) or item(inc, acc.DEP) or 0.0
+        gains = sum(item(cf, n) or 0.0 for n in ("Operating Gains Losses", "Gain Loss On Sale Of Business",
+                                                  "Gain Loss On Sale Of PPE"))
+        ffo = ni + dep + gains
     return {
         "name": info.get("shortName") or info.get("longName"),
         "sector": sector,
         "industry": info.get("industry"),
         "is_financial": is_fin,
+        "is_reit": is_reit,
+        "earnings_vs_normal": round(earnings_vs_normal, 3) if earnings_vs_normal else None,
+        "peak_cycle_earnings": peak,
         "market_cap": mcap,
         "currency": info.get("currency"),
         "years_of_statements": int(inc.shape[1]) if inc is not None and not inc.empty else 0,
@@ -96,7 +123,7 @@ def fundamental_metrics(f: dict) -> dict:
         "piotroski": f_score,
         "piotroski_signals": f_known,
         "earnings_variability": float(np.std(roas)) if len(roas) >= 3 else None,
-        "montier_c": None if is_fin else acc.montier_c(inc, bal, cf),
+        "montier_c": None if is_fin or is_reit else acc.montier_c(inc, bal, cf),
         "negative_cfo_years_3y": sum(1 for x in cfos if x is not None and x < 0) if sum(x is not None for x in cfos) >= 2 else None,
         "net_issuance_1y": sh0 / sh1 - 1 if sh0 and sh1 else None,
         "loss_years_4y": sum(1 for x in nis if x is not None and x < 0),
@@ -107,8 +134,12 @@ def fundamental_metrics(f: dict) -> dict:
         # No reported interest only counts as "no burden" when debt is known to be negligible.
         "interest_coverage": div(ebit, abs(interest)) if interest else
         (99.0 if ebit and ebit > 0 and debt is not None and ta and debt < 0.05 * ta else None),
-        "altman_z2": None if is_fin else acc.altman_z2(bal, inc),
-        "beneish_m": None if is_fin else acc.beneish_m(inc, bal, cf),
+        "altman_z2": None if is_fin or is_reit else acc.altman_z2(bal, inc),
+        "beneish_m": None if is_fin or is_reit else acc.beneish_m(inc, bal, cf),
+        "ffo": ffo,
+        "ffo_yield": div(ffo, mcap),
+        "ffo_to_assets": div(ffo, ta),
+        "net_debt_to_ebitda": div(None if debt is None else debt - cash, item(inc, ["Normalized EBITDA", "EBITDA"])),
         # value
         "earnings_yield": div(ebit_v, ev) if ev and ev > 0 else None,  # Greenblatt EBIT/EV
         "fcf_yield": div(fcf, mcap),

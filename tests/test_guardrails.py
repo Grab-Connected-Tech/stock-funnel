@@ -234,6 +234,27 @@ def test_review_fixes():
     assert score._z(pd.Series([1.0, 2.0])).isna().all()        # can't standardize => missing, not neutral
 
 
+def test_reits_and_peak_earnings():
+    from stockfunnel import gates, recommend
+    reit = {"history_days": 400, "price": 100, "adv_value_60d": 1e9, "zero_volume_days_60d": 0, "market_cap": 1e11,
+            "vol_percentile": 0.5, "negative_equity": False, "net_issuance_1y": 0, "is_reit": True,
+            "negative_cfo_years_3y": 0, "ffo": 2e9, "net_debt_to_ebitda": 5.5, "interest_coverage": 3.0,
+            "bad_print_days_1y": 0, "debt_to_equity": 5.6}           # D/E 5.6 is normal for a REIT
+    g = gates.evaluate(reit, "US")
+    assert g["passed"] and "altman_z2" not in g["checks"] and "leverage" not in g["checks"]
+    assert not gates.evaluate(reit | {"net_debt_to_ebitda": 9.0}, "US")["passed"]   # REIT leverage still checked
+    assert not gates.evaluate(reit | {"ffo": -1e8}, "US")["passed"]
+    scored = pd.DataFrame({"rank": [1.0], "vol_1y": [0.2], "sector": ["A"], "score": [1.0]}, index=["X"])
+    base = {"ticker": "X", "as_of": "2026-10-27", "rank": 1, "ranked_peers": 1,
+            "themes": {"value": 1.0, "quality": 1.0, "momentum": 1.0, "low_vol": 1.0, "yield": 1.0},
+            "gates": {"failed": [], "unknown": [], "passed": True, "checks": {}}, "metrics": {},
+            "regime": {"max_equity_exposure": 1.0},
+            "your_book": {"held": False, "watchlist_since": "2026-10-01", "standing_veto": None}}
+    peak = recommend.build(base, {"peak_cycle_earnings": True, "earnings_vs_normal": 2.0}, scored, {"status": "PASSED"}, {})
+    calm = recommend.build(base, {}, scored, {"status": "PASSED"}, {})
+    assert any("peak-cycle" in r for r in peak["risks"]) and peak["conviction_score"] < calm["conviction_score"]
+
+
 def test_india_tax_deferral():
     from stockfunnel.portfolio import tax_deferral_days as d
     day = date(2026, 10, 28)

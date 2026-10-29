@@ -6,7 +6,7 @@ from .policy import GATES as G
 
 PASS, FAIL, UNKNOWN = "PASS", "FAIL", "UNKNOWN"
 TRADABILITY = {"history_1y", "min_price", "liquidity", "min_market_cap"}
-FORENSIC = {"altman_z2", "beneish_m", "montier_c", "piotroski", "accruals", "cash_generation"}
+FORENSIC = {"altman_z2", "beneish_m", "montier_c", "piotroski", "accruals", "cash_generation", "reit_ffo_positive"}
 
 
 def _check(value, ok) -> str:
@@ -28,7 +28,16 @@ def evaluate(m: dict, market: str) -> dict:
         "positive_equity": _check(m.get("negative_equity"), lambda v: not bool(v)),  # numpy-bool safe
         "dilution": _check(m.get("net_issuance_1y"), lambda v: v <= G["max_net_issuance_1y"]),
     }
-    if fin:
+    if m.get("is_reit"):
+        # REITs: depreciation and property sales distort Altman, Beneish, Montier, Piotroski and
+        # accruals; judge them on funds from operations and asset-based leverage instead.
+        checks.update({
+            "cash_generation": _check(m.get("negative_cfo_years_3y"), lambda v: v <= G["max_negative_cfo_years_3y"]),
+            "reit_ffo_positive": _check(m.get("ffo"), lambda v: v > 0),
+            "reit_leverage": _check(m.get("net_debt_to_ebitda"), lambda v: 0 <= v <= G["reit_max_net_debt_to_ebitda"]),
+            "interest_coverage": _check(m.get("interest_coverage"), lambda v: v >= G["reit_min_interest_coverage"]),
+        })
+    elif fin:
         # Lenders' operating cash flow swings with loan growth, so cash-flow/accrual/Piotroski
         # tests are meaningless; judge on returns instead. Insurers run structurally low ROA.
         if "insurance" in str(m.get("industry", "")).lower():

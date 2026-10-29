@@ -74,7 +74,8 @@ def analyze_universe(universe: str, limit: int | None = None, extra: list[str] |
             rejected[t] = g["failed"] + [f"{u}?" for u in g["unknown"]]
 
     passed = df.loc[[t for t in df.index if results[t]["passed"]]].copy()
-    passed["is_financial"] = passed["is_financial"].astype(bool) if "is_financial" in passed else False
+    for flag in ("is_financial", "is_reit"):
+        passed[flag] = passed[flag].fillna(False).astype(bool) if flag in passed else False
     scored = (score.composite(passed, market, reg["momentum_crash_guard"]) if len(passed)
               else passed.assign(rank=pd.Series(dtype=float), score=pd.Series(dtype=float)))  # nothing passed
     return {"market": market, "universe": universe, "as_of": str(last_date), "regime": reg,
