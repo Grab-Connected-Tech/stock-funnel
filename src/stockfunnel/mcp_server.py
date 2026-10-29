@@ -74,12 +74,16 @@ def plan_investment(amount: Annotated[float, Field(description="money to invest,
                         description="hoped-for monthly return as a decimal, e.g. 0.01 for 1%/month; answered with "
                                     "historical odds, never a forecast")] = None,
                     fractional_shares: Annotated[bool | None, Field(
-                        description="allow fractional shares; default yes for US, no for India")] = None) -> str:
+                        description="allow fractional shares; default yes for US, no for India")] = None,
+                    risk: Annotated[Literal["conservative", "moderate", "growth"] | None, Field(
+                        description="risk appetite: caps the share put into stocks so a repeat of the index's worst "
+                                    "period of this length would cost at most 10% (conservative) / 20% (moderate) of the "
+                                    "whole amount; growth or omitted = no cap. Changes how much, never which stocks")] = None) -> str:
     """Turn an amount of money into a concrete plan: which stocks and how many shares (or the index fund when the amount
     is too small to diversify), cash held back by the market regime, buy-from dates, and HISTORICAL odds of reaching a
     hoped-for return. Use this for any 'I have X to invest' question. Never present the odds as a forecast."""
     from .plan import plan_investment as build
-    return dumps(build(float(amount), market, int(months), target_monthly_return, fractional=fractional_shares))
+    return dumps(build(float(amount), market, int(months), target_monthly_return, fractional=fractional_shares, risk=risk))
 
 
 @mcp.tool()

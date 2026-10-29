@@ -13,6 +13,22 @@ INDEX_NAME = {"^CRSLDX": "Nifty 500", "^GSPC": "S&P 500"}
 INDEX_FUND = {"IN": ("NIFTYBEES.NS", "Nifty 50 index ETF"), "US": ("RSP", "S&P 500 equal-weight ETF")}
 BUYABLE = ("BUY", "BUY AFTER")
 TEMPORARY = ("WAIT",)  # results due, a volume shock...: still part of the plan, bought once it clears
+# Risk appetite sets HOW MUCH goes into stocks, never WHICH stocks: the most of the whole amount the investor
+# accepts losing if the worst historical period of their holding length repeated. growth = no cap (the default).
+RISK_MAX_LOSS = {"conservative": 0.10, "moderate": 0.20, "growth": None}
+
+
+def stock_share(market: str, months: int, risk: str | None) -> tuple[float, dict | None]:
+    """Share of the money allowed in stocks so that a repeat of the index's worst `months`-month period would
+    cost at most RISK_MAX_LOSS[risk] of the whole amount (the rest sits in cash / a liquid fund at ~0%).
+    ponytail: ~20 years of one index's history; the real stock basket can fall more than the index."""
+    if risk is None:
+        return 1.0, None
+    cap, bench = RISK_MAX_LOSS[risk], data.MARKETS[market]["benchmark"]
+    worst = horizon_odds(bench, INDEX_NAME[bench], months, None)["worst"]
+    share = 1.0 if cap is None or worst >= 0 else min(1.0, cap / -worst)
+    return share, {"profile": risk, "max_loss_accepted": cap, "horizon_months": months,
+                   "index_worst_return_over_horizon": worst, "stock_share_before_regime": round(share, 3)}
 
 
 def horizon_odds(ticker: str, name: str, months: int, target_monthly: float | None) -> dict:
@@ -33,8 +49,9 @@ def horizon_odds(ticker: str, name: str, months: int, target_monthly: float | No
 
 
 def plan_investment(amount: float, market: str = "IN", months: int = 3, target_monthly_return: float | None = None,
-                    universe: str | None = None, fractional: bool | None = None) -> dict:
-    """fractional: allow fractional shares (default: yes for US brokers, no for India)."""
+                    universe: str | None = None, fractional: bool | None = None, risk: str | None = None) -> dict:
+    """fractional: allow fractional shares (default: yes for US brokers, no for India).
+    risk: conservative | moderate | growth caps the stock share by historical worst loss; None = unchanged default."""
     fractional = market == "US" if fractional is None else fractional
     universe = universe or funnel.DEFAULT_PEERS[market]
     a = funnel.analyze_universe(universe)
@@ -42,9 +59,10 @@ def plan_investment(amount: float, market: str = "IN", months: int = 3, target_m
     n = PORTFOLIO["n_holdings"][market]
     book = sc[sc["rank"] <= n]
     w = capped_weights(1 / book["vol_1y"], book["sector"], PORTFOLIO["max_weight"][market], PORTFOLIO["max_sector_weight"])
-    w = w[w >= PORTFOLIO["min_weight"]] * reg["max_equity_exposure"]
+    share, profile = stock_share(market, months, risk)
+    w = w[w >= PORTFOLIO["min_weight"]] * reg["max_equity_exposure"] * share
     st = broker.load(market)
-    equity_budget = amount * reg["max_equity_exposure"]
+    equity_budget = amount * reg["max_equity_exposure"] * share
 
     positions, waiting, unaffordable, blocked = [], [], [], []
     for t, wt in w.sort_values(ascending=False).items():
@@ -102,6 +120,14 @@ def plan_investment(amount: float, market: str = "IN", months: int = 3, target_m
     if reg["max_equity_exposure"] < 1:
         notes.append(f"The market is risk-off: the system keeps {1 - reg['max_equity_exposure']:.0%} of the money in cash "
                      "or a liquid fund until the trend recovers.")
+    if profile:
+        p = profile
+        notes.append(f"Risk profile '{risk}': " + (
+            "no cap on the stock share." if p["max_loss_accepted"] is None else
+            f"the worst {months}-month period in the index's history returned {p['index_worst_return_over_horizon']:.0%}; "
+            f"with {share:.0%} in stocks a repeat would cost about {share * -min(p['index_worst_return_over_horizon'], 0):.0%} "
+            f"of the whole amount (limit {p['max_loss_accepted']:.0%}). The profile changes how much goes into stocks, "
+            "not which stocks."))
     if target_monthly_return is not None:
         notes.append(f"No system can promise {target_monthly_return:.1%} a month. Historically, {odds['index']} "
                      f"reached {odds['target_total_return']:.1%} over {months} months in "
@@ -122,6 +148,7 @@ def plan_investment(amount: float, market: str = "IN", months: int = 3, target_m
                             "placed": round(placed, 2) if stock_route else 0.0, "placed_fraction": round(placed_frac, 3),
                             "unaffordable": unaffordable if stock_route else [], "avoided": blocked if stock_route else []},
         "cash_or_liquid_fund": round(amount - equity_budget, 2),
+        **({"risk_profile": profile} if profile else {}),
         "historical_odds": odds,
         "evidence": validation.get("status"),
         "notes": notes,

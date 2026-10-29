@@ -350,6 +350,17 @@ def test_top_basket_is_alphabetical_without_rank():
     assert [r["ticker"] for r in rows] == ["AAA", "ZZZ"] and not {"rank", "score"} & set(rows[0])
 
 
+def test_risk_profile_caps_stock_share_only():
+    from stockfunnel import plan
+    assert plan.stock_share("US", 12, None) == (1.0, None)                    # no profile: today's behaviour
+    plan.horizon_odds = lambda *a, **k: {"worst": -0.40}                       # offline: index fell 40% at worst
+    assert plan.stock_share("US", 12, "conservative")[0] == 0.25              # 25% x 40% = the 10% limit
+    assert plan.stock_share("US", 12, "moderate")[0] == 0.5
+    assert plan.stock_share("US", 12, "growth")[0] == 1.0
+    plan.horizon_odds = lambda *a, **k: {"worst": 0.05}                        # never lost money over this horizon
+    assert plan.stock_share("IN", 60, "conservative")[0] == 1.0
+
+
 if __name__ == "__main__":
     cwd = os.getcwd()
     for name, fn in list(globals().items()):
