@@ -16,11 +16,14 @@ from pathlib import Path
 
 import pandas as pd
 
+import yfinance as yf  # noqa: E402
+
+# yfinance re-enables DeprecationWarnings from its own modules on import, so silence pandas'
+# deprecation noise AFTER importing it (otherwise its rule takes precedence).
 for _w in ("Pandas4Warning", "Pandas5Warning", "PandasDeprecationWarning", "PandasFutureWarning",
-           "PandasPendingDeprecationWarning", "PandasChangeWarning"):  # yfinance vs pandas 3 deprecation noise
+           "PandasPendingDeprecationWarning", "PandasChangeWarning"):
     if hasattr(pd.errors, _w):
         warnings.filterwarnings("ignore", category=getattr(pd.errors, _w))
-import yfinance as yf  # noqa: E402
 
 CACHE = Path.home() / ".cache" / "stockfunnel"
 
