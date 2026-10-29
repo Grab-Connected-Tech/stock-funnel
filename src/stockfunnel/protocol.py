@@ -49,8 +49,9 @@ HOW TO JUDGE A STOCK
 
 HOW TO SCREEN A MARKET
 - market_regime(market) first: if max_equity_exposure < 1, the system keeps cash on purpose.
-- run_funnel(universe, format="json"): actions per stock, plus top_ranked. Present BUY / BUY AFTER
-  names with their reasons; never add names the funnel didn't propose.
+- run_funnel(universe, format="json"): actions per stock, plus top_ranked (the top-30 basket, alphabetical).
+  Present BUY / BUY AFTER names with their reasons as a BASKET: never imply a best pick or present an order
+  (hindsight replays show the order inside the basket carries no information). Never add names.
 
 HINDSIGHT REPLAYS (replay_benchmark, replay_monthly)
 - These rewind the framework to past dates and grade it against what happened since. Use them to benchmark
@@ -86,12 +87,15 @@ FIELD_GUIDE = {
                               "upcoming results date. POSITIVE | NEUTRAL | WARN | WAIT | FAIL | UNKNOWN. "
                               "revision_breadth is TRACKING ONLY: shown and graded, but it does not affect the action",
     "verdict": "funnel STAGE, not the action: TOP RANKED (top 30) | HOLD ZONE | BELOW BUFFER | REJECT (failed a gate). The action is recommendation.action",
-    "rank / ranked_peers": "position among peers that passed every safety gate (1 = best)",
+    "rank / ranked_peers": "internal position among gate-passing peers, used only for tier rules (top 30 = buy zone, "
+                           "hold zone up to 60 IN / 75 US). Don't present the number: only the tier carries information",
     "themes": "factor z-scores vs sector peers (0 = average, +1 = better than ~84%, -1 = worse than ~84%): "
               "value, quality, momentum, low_vol, yield",
     "gates.checks": "hard safety gates. Any FAIL rejects; more than one UNKNOWN rejects (fail-closed)",
     "regime.max_equity_exposure": "share of money the system allows in stocks now (0.5 = half in cash)",
-    "evidence.status": "PASSED | FAILED | STALE | NOT_RUN: backtest of the price factors vs equal-weight and factor ETFs",
+    "evidence.status": "PASSED only if BOTH the long price-factor backtest and the recent full-funnel replay pass; "
+                       "MIXED if they disagree; FAILED if neither; STALE/NOT_RUN otherwise. Anything but PASSED means "
+                       "no proven edge (buys are labelled so)",
     "metrics": "raw inputs (ROE, debt/equity, P/E, Altman Z'', Beneish M, momentum, volatility ...)",
 }
 
@@ -122,6 +126,10 @@ REPLAY_GUIDE = {
                                             "avg / median across dates",
     "replay_monthly.summary.<group>.share_right": "share of start dates where top5/top30 beat equal-weight, or where "
                                                   "avoided stocks lagged it (higher = better for every group)",
+    "replay_monthly.ranking": "does the ORDER of the ranking carry information? Measured only among gate-passing "
+                              "stocks: avg_rank_correlation (>0 = higher-ranked did better), share of windows positive, "
+                              "top30_vs_rest_of_passed, average return by quintile, per-factor correlations, and "
+                              "informative (true only if all point the right way)",
     "replay_monthly.by_date": "one row per start date: as_of, regime, ranked count, and the three *_vs_ew values",
     "how_to_read": "One window is an anecdote. Prefer several windows or replay_monthly before concluding anything, and "
                    "always repeat the caveats.",

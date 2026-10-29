@@ -34,7 +34,7 @@ uv sync --extra mcp
 uv run stockfunnel regime IN                 # market regime
 uv run stockfunnel validate nifty200         # 20y walk-forward backtest + deflated Sharpe
 uv run stockfunnel run nifty200              # manual mode: recommendations report
-uv run stockfunnel analyze TCS.NS            # one stock: verdict, gates, rank vs peers, factor scores
+uv run stockfunnel analyze TCS.NS            # one stock: verdict, gates, tier vs peers, factor scores
 uv run stockfunnel run sp500 --mode autopilot   # paper-trade (BUYs need reviews)
 uv run stockfunnel status IN                 # paper book, drawdown, kill-switch state
 uv run python tests/test_guardrails.py       # offline self-check of the guardrails
@@ -48,7 +48,7 @@ Reports are written to `reports/`, paper books to `state/`, reviews to `reviews/
 uv run stockfunnel-ui        # then open http://127.0.0.1:8765
 ```
 Four tabs:
-- **Analyze:** any stock's verdict, rank meter, factor scores, a plain-English summary, safety gates, and a manual-check list saved per stock.
+- **Analyze:** any stock's verdict, tier meter, factor scores, a plain-English summary, safety gates, and a manual-check list saved per stock.
 - **Screener:** runs the funnel on an index.
 - **Portfolio:** the paper book and the cooling-off watchlist.
 - **Evidence:** the backtest verdicts.
@@ -117,6 +117,36 @@ This tests the price-based sleeve only: momentum + low vol + lottery exclusion +
 - **India:** a robust risk-adjusted edge, though survivorship bias inflates it (only today's index members were tested). After worst-case short-term tax, the margin over the low-volatility ETF is only about 2 points a year, small enough that survivorship bias could plausibly account for it.
 - **US:** use USMV or QUAL as the default. The stock picks are an alternative, not an improvement.
 - **Trial count:** each re-run of `validate` counts as another trial in the deflated Sharpe. Changing `policy.py` marks old results STALE.
+
+### Full-funnel hindsight replay (24 month-ends, each graded over the next 3 months)
+
+The backtest above covers price factors only. `stockfunnel replay <universe> --multi 24` rebuilds the **whole** funnel
+(gates, fundamentals, ranking) at each past month-end from statements that were public by then. The US replay uses
+the S&P 500 as it was on each date (no survivorship bias); India uses today's members.
+
+| | US (S&P 500) | India (Nifty 200) |
+|---|---|---|
+| Top-30 basket vs equal-weight | −0.5% avg, beat it in 55% of windows | −1.7% avg, beat it in 18% |
+| Top-5 vs equal-weight | −2.0%, 27% | −2.1%, 32% |
+| Stocks the gates avoided vs equal-weight | **+0.9%**, lagged in only 18% | +0.8%, lagged in 45% |
+| Ranking informative? (rank correlation, share of windows positive) | Yes, weakly (+0.085, 82%) | No (−0.037, 36%) |
+
+**What this says:**
+- **The order inside the top 30 carries no information** (top 5 does worse than top 30), so the top 30 is shown as an
+  alphabetical basket, and outputs use tiers (top-30 basket / hold zone / below) instead of rank numbers.
+- **US:** the ranking has a small real signal, but the gates gave it back. Excluded stocks beat the market even with
+  historical index membership, so it isn't survivorship. Per-gate attribution: the volatility ("lottery") exclusion
+  removed stocks that beat the market by 6.5% on average in this rally; the leverage gates did avoid laggards.
+- **India:** the forensic gates (Beneish, Montier, Altman, Piotroski) did avoid laggards, but the ranking ran backwards.
+- **Evidence status** combines both tests: PASSED only if both pass. Both markets are currently **MIXED, no proven
+  edge**, and every buy says so. Two years of replays are one market regime; nothing was tuned to them.
+
+## Pre-registered success criteria
+
+[docs/PREREGISTRATION.md](docs/PREREGISTRATION.md) fixes, before any live results exist, how the live track record
+will be judged (decision review 2028-10-29: ≥30 graded calls, ≥ +2 pp average 12-month excess with a positive CI lower
+bound, ≥55% hit rate, AVOIDs ≤ 0) and freezes scoring and gates until then except bug fixes. Its fingerprint is in
+the hash-chained journal.
 
 ## Tuning principles (what changed in the tuning pass, and what deliberately didn't)
 

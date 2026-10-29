@@ -53,7 +53,7 @@ def plan_investment(amount: float, market: str = "IN", months: int = 3, target_m
             continue
         rec = funnel.stock_report(t, a, st, log=False)["recommendation"]  # same verdict as analyze_stock / run
         shares = round(budget / price, 4) if fractional else math.floor(budget / price)
-        row = {"ticker": t, "name": a["metrics"].at[t, "name"], "rank": int(sc.at[t, "rank"]), "weight": round(float(wt), 4),
+        row = {"ticker": t, "name": a["metrics"].at[t, "name"], "weight": round(float(wt), 4),
                "budget": round(budget, 2), "price": round(price, 2), "shares": shares, "cost": round(shares * price, 2),
                "action": rec["action"], "buy_from": rec["start_date"] or a["as_of"]}
         reason = rec["why"][0] if rec["why"] else rec["action"]
@@ -120,7 +120,7 @@ def plan_investment(amount: float, market: str = "IN", months: int = 3, target_m
         "stock_portfolio": {"positions": positions if stock_route else [], "waiting": waiting if stock_route else [],
                             "considered": len(w),
                             "placed": round(placed, 2) if stock_route else 0.0, "placed_fraction": round(placed_frac, 3),
-                            "unaffordable": unaffordable, "avoided": blocked},
+                            "unaffordable": unaffordable if stock_route else [], "avoided": blocked if stock_route else []},
         "cash_or_liquid_fund": round(amount - equity_budget, 2),
         "historical_odds": odds,
         "evidence": validation.get("status"),

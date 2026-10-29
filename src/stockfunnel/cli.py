@@ -40,11 +40,11 @@ def render(r: dict) -> str:
                 "BUYs need a valid review first: `stockfunnel packet <universe> <TICKER>` → reviewer fills the schema → "
                 "`stockfunnel review <universe> <TICKER> review.json --reviewer <you>`.", ", ".join(r["pending_reviews"])]
     out += ["", f"_Every BUY above passed automated NSE/SEC checks. Not covered: {r['not_covered']}_"]
-    out += ["", "## Top ranked", "| # | Ticker | Name | Sector | Score | Value | Quality | Mom | LowVol | Yield |",
-            "|---|---|---|---|---|---|---|---|---|---|"]
+    out += ["", "## Top-30 basket (alphabetical: the order inside the basket carries no information)",
+            "| Ticker | Name | Sector | Value | Quality | Mom | LowVol | Yield |", "|---|---|---|---|---|---|---|---|"]
     for x in r["top_ranked"]:
         th = [x.get(f"theme_{k}") for k in ("value", "quality", "momentum", "low_vol", "yield")]
-        out.append(f"| {int(x['rank'])} | {x['ticker']} | {x.get('name')} | {x.get('sector')} | {x['score']:.2f} | "
+        out.append(f"| {x['ticker']} | {x.get('name')} | {x.get('sector')} | "
                    + " | ".join("–" if v is None or v != v else f"{v:+.2f}" for v in th) + " |")
     out += ["", "_Not investment advice. Systematic screen on free, non-point-in-time data; see README limitations._"]
     return "\n".join(out)
@@ -96,12 +96,15 @@ def render_stock(r: dict) -> str:
 def _validation_line(v: dict) -> str:
     if v["status"] in ("NOT_RUN", "STALE"):
         return f"**Evidence**: ⚠ {v['status']}: {v['note']}"
-    line = (f"**Evidence** ({v['universe']}, {v['period']}): Sharpe {v['strategy_sharpe']} vs equal-weight "
-            f"{v['equal_weight_sharpe']}, max DD {v['strategy_max_dd']:.0%} vs {v['equal_weight_max_dd']:.0%} → {v['status']}")
-    if v["status"] == "FAILED":
-        line += (" ⚠ no proven risk-adjusted edge over a passive equal-weight/index fund in this market; "
-                 "treat output as risk control, and consider the ETF as the default")
-    return line + (" (stale: re-run validate)" if v["stale"] else "")
+    rp = v.get("full_funnel_replay", {})
+    line = (f"**Evidence: {v['status']}** · price factors {v['universe']} {v['period']}: {v['price_factor_backtest']} "
+            f"(Sharpe {v['strategy_sharpe']} vs equal-weight {v['equal_weight_sharpe']})")
+    if rp.get("status") not in (None, "NOT_RUN"):
+        line += (f" · full-funnel replay {rp['period']}: {rp['status']} (top 30 beat the market in "
+                 f"{rp['top30_beat_market_share']:.0%} of windows)")
+    if v["status"] != "PASSED":
+        line += f" ⚠ {v['note']}; an index or factor ETF is an equally good default"
+    return line + (" (stale: re-run validate)" if v.get("stale") else "")
 
 
 def main(argv: list[str] | None = None) -> int:

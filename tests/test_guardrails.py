@@ -338,6 +338,14 @@ def test_deflated_sharpe_penalizes_many_trials():
     assert many < few
 
 
+def test_top_basket_is_alphabetical_without_rank():
+    from stockfunnel.funnel import _top_table
+    sc = pd.DataFrame({"rank": [1, 2, 3], "name": ["Z", "A", "M"], "sector": ["x"] * 3, "score": [3.0, 2.0, 1.0],
+                       "theme_value": [0.1, 0.2, 0.3]}, index=["ZZZ", "AAA", "MMM"])
+    rows = _top_table(sc, 2)
+    assert [r["ticker"] for r in rows] == ["AAA", "ZZZ"] and not {"rank", "score"} & set(rows[0])
+
+
 if __name__ == "__main__":
     cwd = os.getcwd()
     for name, fn in list(globals().items()):

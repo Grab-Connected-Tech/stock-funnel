@@ -166,14 +166,17 @@ def stock_report(ticker: str, a: dict, st: dict, log: bool = True) -> dict:
     elif rank is None:
         verdict, detail = "REJECT", "too little data to score"
     elif rank <= n:
-        verdict, detail = "TOP RANKED", f"rank {rank}/{len(sc)} in {universe}: inside the top {n} (see the recommendation for the action)"
+        verdict, detail = "TOP RANKED", f"in the top-{n} basket of {len(sc)} gate-passing {universe} stocks (see the recommendation for the action)"
     elif rank <= buffer:
-        verdict, detail = "HOLD ZONE", f"rank {rank}/{len(sc)}: fine to keep if owned (buffer {buffer}), not a new buy"
+        verdict, detail = "HOLD ZONE", f"in the hold zone (top {buffer} of {len(sc)}): fine to keep if owned, not a new buy"
     else:
-        verdict, detail = "BELOW BUFFER", f"passes gates but ranks {rank}/{len(sc)}; better candidates exist"
+        verdict, detail = "BELOW BUFFER", f"passes the gates but sits below the hold zone (top {buffer} of {len(sc)})"
     m = a["metrics"].loc[ticker]
     pick = ["name", "sector", "market_cap", "pe", "roe", "roic", "debt_to_equity", "piotroski", "altman_z2", "beneish_m",
             "montier_c", "earnings_yield", "fcf_yield", "mom_12_1", "vol_1y", "max_dd_1y"]
+    if m.get("is_reit"):  # REITs are judged on FFO and net debt/EBITDA, not ROE or debt/equity
+        pick = [k for k in pick if k not in ("roe", "roic", "debt_to_equity", "earnings_yield")] + [
+            "ffo", "ffo_yield", "net_debt_to_ebitda"]
     out = {
         "ticker": ticker, "as_of": a["as_of"], "peer_universe": universe, "member": ticker in members,
         "verdict": verdict, "detail": detail,
@@ -331,7 +334,7 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
         "actions": shown, "executions": executions,
         "pending_reviews": sorted(t for t, f in final.items() if f.get("pending_review")),
         "not_covered": checks.NOT_COVERED[market],
-        "top_ranked": _top_table(a["scored"], 15),
+        "top_ranked": _top_table(a["scored"], 30),
     }
     journal.record("run", {k: v for k, v in result.items() if k != "top_ranked"})
     return result
@@ -340,6 +343,29 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
 def policy_sha() -> str:
     """Hash of the frozen policy; a change invalidates earlier validation results."""
     return hashlib.sha256(Path(__file__).with_name("policy.py").read_bytes()).hexdigest()[:16]
+
+
+def latest_replay(market: str) -> dict:
+    """Most recent full-funnel monthly replay (`stockfunnel replay <universe> --multi N`) for this market.
+    It passes only if the top 30 beat the equal-weight market in most windows AND the ranking carried information."""
+    found = []
+    for f in Path("replays").glob("*-multi*.json"):
+        try:
+            v = json.loads(f.read_text())
+        except json.JSONDecodeError:
+            continue
+        mk = v.get("market") or ("US" if v.get("universe") == "sp500" else "IN")
+        if mk == market and v.get("summary"):
+            found.append((f.stat().st_mtime, v))
+    if not found:
+        return {"status": "NOT_RUN"}
+    _, v = max(found, key=lambda x: x[0])
+    beat = v["summary"]["top30_vs_ew"]["share_right"]
+    informative = (v.get("ranking") or {}).get("informative")
+    ok = beat >= 0.5 and informative is not False
+    return {"status": "PASSED" if ok else "FAILED", "windows": v["windows"], "period": f"{v['first']} → {v['last']}",
+            "top30_beat_market_share": beat, "ranking_informative": informative,
+            "membership": v.get("membership", "today's members")}
 
 
 def latest_validation(market: str) -> dict:
@@ -358,7 +384,20 @@ def latest_validation(market: str) -> dict:
     age = (date.today() - date.fromtimestamp(mtime)).days
     if v.get("policy_sha") != policy_sha():
         return {"status": "STALE", "note": "policy.py changed since the last validation; re-run `stockfunnel validate`"}
-    return {"status": "PASSED" if v["passed"] else "FAILED", "universe": v["universe"], "period": v["period"],
+    price_ok = bool(v["passed"])
+    replay = latest_replay(market)
+    if replay["status"] == "NOT_RUN":
+        status = "PASSED" if price_ok else "FAILED"
+    else:
+        replay_ok = replay["status"] == "PASSED"
+        status = "PASSED" if price_ok and replay_ok else "FAILED" if not (price_ok or replay_ok) else "MIXED"
+    return {"status": status,
+            "note": {"PASSED": "price-factor backtest and full-funnel replay both passed",
+                     "MIXED": "the long price-factor backtest and the recent full-funnel replay disagree: no proven edge",
+                     "FAILED": "no proven edge"}[status] + ("" if replay["status"] != "NOT_RUN" else
+                                                            " (full funnel not yet replayed: `stockfunnel replay <universe> --multi 24`)"),
+            "price_factor_backtest": "PASSED" if price_ok else "FAILED", "full_funnel_replay": replay,
+            "universe": v["universe"], "period": v["period"],
             "age_days": age, "stale": age > 90, "checks": v["checks"],
             "strategy_sharpe": v["strategy"]["sharpe"], "equal_weight_sharpe": v["equal_weight_universe"]["sharpe"],
             "strategy_max_dd": v["strategy"]["max_drawdown"], "equal_weight_max_dd": v["equal_weight_universe"]["max_drawdown"]}
@@ -373,7 +412,8 @@ def _top_reasons(rejected: dict) -> dict:
 
 
 def _top_table(scored: pd.DataFrame, n: int) -> list[dict]:
-    cols = ["rank", "name", "sector", "score"] + [c for c in scored.columns if c.startswith("theme_")]
-    top = scored.head(n)[[c for c in cols if c in scored]]
+    """The top-n basket in ALPHABETICAL order: replays show the order within the basket carries no information."""
+    cols = ["name", "sector"] + [c for c in scored.columns if c.startswith("theme_")]
+    top = scored.head(n)[[c for c in cols if c in scored]].sort_index()
     return [{"ticker": t, **{k: (round(v, 3) if isinstance(v, float) else v) for k, v in r.items()}}
             for t, r in top.iterrows()]

@@ -55,7 +55,7 @@ def run_funnel(universe: Universe,
                mode: Annotated[Literal["manual", "autopilot"],
                                Field(description="manual = recommend only; autopilot = trade the PAPER book")] = "manual",
                format: Format = "json") -> str:
-    """Screen a whole index: every top-ranked and held stock's recommendation, plus the top-ranked table."""
+    """Screen a whole index: every top-30 basket and held stock's recommendation, plus the top-30 basket (alphabetical)."""
     try:
         r = funnel.run(universe, mode)
     except (ValueError, RuntimeError) as e:

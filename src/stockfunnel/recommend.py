@@ -144,25 +144,25 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     elif rank > buffer:
         wait = tax_deferral_days(market, book.get("opened"), book.get("gain"), today) if held else 0
         action = "HOLD" if wait else "SELL" if held else "AVOID"
-        why.insert(0, f"Ranks {rank} of {r['ranked_peers']}: outside the top {buffer}; better options exist")
+        why.insert(0, f"Below the hold zone (outside the top {buffer} of {r['ranked_peers']}); better options exist")
         if wait:
             start = today + timedelta(days=wait)
             why.insert(1, f"Sell on {start} ({wait} days): that qualifies the gain for 12.5% long-term tax instead of 20%")
     elif rank > n:
         action = "HOLD" if held else "WAIT"
-        why.insert(0, f"Ranks {rank}: good enough to keep, not strong enough to start a new position (top {n})")
+        why.insert(0, f"In the hold zone (top {buffer}, not top {n}): good enough to keep, not to start a new position")
     elif (m_ret := fm.get("ret_1m")) is not None and m_ret > PORTFOLIO["max_1m_return_for_buy"]:
         action = "WAIT"
-        why.insert(0, f"Ranks {rank}, but jumped {m_ret:.0%} this month; the system doesn't chase spikes")
+        why.insert(0, f"In the top-{n} basket, but jumped {m_ret:.0%} this month; the system doesn't chase spikes")
     elif results_block and not held and rank <= n:
         action = "WAIT"
-        why.insert(0, f"Ranks {rank}, but {results_block['detail']}")
+        why.insert(0, f"In the top-{n} basket, but {results_block['detail']}")
     elif waits and not held and rank <= n:
         action = "WAIT"
-        why.insert(0, f"Ranks {rank}, but something unexplained just happened: {waits[0]}. Wait for it to settle")
+        why.insert(0, f"In the top-{n} basket, but wait for this to settle: {waits[0]}")
     elif unverified and not held:
         action = "WAIT"
-        why.insert(0, f"Ranks {rank}, but couldn't verify {', '.join(unverified)} today (source unreachable); retry later")
+        why.insert(0, f"In the top-{n} basket, but couldn't verify {', '.join(unverified)} today (source unreachable); retry later")
     else:
         since = date.fromisoformat(book["watchlist_since"]) if book.get("watchlist_since") else today
         start = since + timedelta(days=PORTFOLIO["cooling_off_days"])
@@ -173,7 +173,7 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
             why.insert(0, f"Results are due {res:%d %b}: the buy waits until they're out and re-checked")
         action = "HOLD" if held else ("BUY" if start <= today else "BUY AFTER")
         unk = [u.replace("_", " ") for u in g["unknown"]]  # the item name, not its failure phrase
-        why.insert(0, f"Ranks {rank} of {r['ranked_peers']} after passing the safety gates" +
+        why.insert(0, f"In the top-{n} basket of {r['ranked_peers']} gate-passing stocks" +
                    (f" (1 non-critical item couldn't be verified: {unk[0]})" if unk else ""))
 
     # ---- conviction: transparent points, not a forecast ----
@@ -210,7 +210,7 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
         notes.append("capped at MEDIUM: no backtested edge behind this pick")
 
     weight = target_weight(r["ticker"], scored, market, reg["max_equity_exposure"]) if action in ("BUY", "BUY AFTER", "HOLD") and rank else None
-    sell_if = [f"Rank drops below {buffer} at a monthly review"]
+    sell_if = [f"Falls out of the hold zone (top {buffer}) at a monthly review"]
     sell_if += [f"{x['label']} {x['rule']} (now {x['value']})" for x in near]
     sell_if.append("Any other safety gate fails on new results")
 
