@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import broker, data, gates, journal, metrics, portfolio, regime, review, score
+from . import broker, checks, data, gates, journal, metrics, portfolio, regime, review, score
 from .policy import GATES
 
 REVIEW_DIR = Path("reviews")
@@ -97,7 +97,7 @@ def review_packet(t: str, a: dict) -> dict:
         facts["s.universe_size_after_gates"] = len(a["scored"])
     facts |= {f"r.{k}": v for k, v in a["regime"].items()}
     return {"ticker": t, "market": a["market"], "as_of": a["as_of"], "facts": facts,
-            "manual_checks_required": gates.MANUAL_CHECKS[a["market"]],
+            "not_covered": checks.NOT_COVERED[a["market"]],
             "kill_metric_ids": sorted(k for k in facts if k.startswith("m.") and k[2:] in review.DECISION_METRICS),
             "instructions": review.INSTRUCTIONS, "schema": review.SCHEMA}
 
@@ -145,8 +145,7 @@ def analyze_stock(ticker: str, universe: str | None = None) -> dict:
     elif rank is None:
         verdict, detail = "REJECT", "too little data to score"
     elif rank <= n:
-        verdict, detail = "BUY CANDIDATE", (f"rank {rank}/{len(sc)} in {universe}: inside the top {n}. Still needs the "
-                                            f"cooling-off period and 2 independent reviews before any buy")
+        verdict, detail = "BUY CANDIDATE", f"rank {rank}/{len(sc)} in {universe}: inside the top {n}"
     elif rank <= buffer:
         verdict, detail = "HOLD ZONE", f"rank {rank}/{len(sc)}: fine to keep if owned (buffer {buffer}), not a new buy"
     else:
@@ -155,7 +154,7 @@ def analyze_stock(ticker: str, universe: str | None = None) -> dict:
     m = a["metrics"].loc[ticker]
     pick = ["name", "sector", "market_cap", "pe", "roe", "roic", "debt_to_equity", "piotroski", "altman_z2", "beneish_m",
             "montier_c", "earnings_yield", "fcf_yield", "mom_12_1", "vol_1y", "max_dd_1y"]
-    return {
+    out = {
         "ticker": ticker, "as_of": a["as_of"], "peer_universe": universe, "member": ticker in members,
         "verdict": verdict, "detail": detail,
         "rank": rank, "ranked_peers": len(sc),
@@ -167,8 +166,12 @@ def analyze_stock(ticker: str, universe: str | None = None) -> dict:
                     if k in pick and not (isinstance(v, float) and np.isnan(v))},
         "your_book": {"held": ticker in st["positions"], "watchlist_since": st["watchlist"].get(ticker),
                       "standing_veto": st.get("vetoes", {}).get(ticker)},
-        "manual_checks": gates.MANUAL_CHECKS[market],
+        "not_covered": checks.NOT_COVERED[market],
     }
+    from . import recommend
+    full = {k: (None if isinstance(v, float) and np.isnan(v) else v) for k, v in m.items()}
+    out["recommendation"] = recommend.build(out, full, sc, latest_validation(market), checks.run(ticker))
+    return out
 
 
 def record_review(universe: str, ticker: str, rev, reviewer_id: str) -> dict:
@@ -227,6 +230,15 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
     if official:  # what-if runs never advance the cooling-off clock
         state["watchlist"] = p["watchlist"]
 
+    for t, act in p["actions"].items():  # automated pre-trade checks (NSE / SEC) on every proposed buy
+        if act["action"] == "BUY":
+            res = checks.run(t)
+            bad = [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in res.items()
+                   if v["status"] == "FAIL" or (v["status"] == "UNKNOWN" and k in checks.CRITICAL)]
+            if bad:
+                act.update(action="HOLD" if t in held else "WATCH", reason="pre-trade check: " + "; ".join(bad),
+                           target_weight=round(held.get(t, 0.0), 4))
+
     final = {}
     for t, act in p["actions"].items():
         packet = review_packet(t, a) if act["action"] == "BUY" else {}
@@ -261,7 +273,7 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
                    "rejected": len(a["rejected"]), "top_rejection_reasons": _top_reasons(a["rejected"])},
         "actions": final, "executions": executions,
         "pending_reviews": sorted(t for t, f in final.items() if f.get("pending_review")),
-        "manual_checks_required": gates.MANUAL_CHECKS[market],
+        "not_covered": checks.NOT_COVERED[market],
         "top_ranked": _top_table(a["scored"], 15),
     }
     journal.record("run", {k: v for k, v in result.items() if k != "top_ranked"})

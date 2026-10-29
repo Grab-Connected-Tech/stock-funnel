@@ -100,6 +100,17 @@ section[hidden] { display: none; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
 .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
 
+/* recommendation */
+.rec { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 0; padding: 0; overflow: hidden; }
+.rec .lead { padding: 24px; background: color-mix(in srgb, var(--vc) 12%, var(--surface)); border-right: 1px solid var(--ring); }
+.rec .act { font-size: 34px; font-weight: 800; letter-spacing: -.03em; line-height: 1.05; margin: 10px 0 4px; }
+.rec .body { padding: 20px 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; }
+.rec h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); margin: 0 0 8px; }
+.rec ul { margin: 0; padding-left: 18px; } .rec li { margin-bottom: 6px; font-size: 14px; }
+.conv { display: flex; gap: 4px; margin-top: 10px; } .conv span { height: 6px; flex: 1; border-radius: 3px; background: var(--grid); }
+.conv span.on { background: var(--vc); }
+@media (max-width: 640px) { .rec { grid-template-columns: 1fr; } .rec .lead { border-right: 0; border-bottom: 1px solid var(--ring); } }
+
 /* diverging bars */
 .theme { display: grid; grid-template-columns: 110px 1fr 56px; align-items: center; gap: 12px; padding: 7px 0; cursor: default; }
 .track { position: relative; height: 18px; }
@@ -121,6 +132,7 @@ section[hidden] { display: none; }
 .gate { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 9px; background: var(--surface-2); font-size: 13px; }
 .gate i { font-style: normal; font-weight: 800; }
 .gate.PASS i { color: var(--good); } .gate.FAIL { background: color-mix(in srgb, var(--crit) 14%, transparent); } .gate.FAIL i { color: var(--crit); }
+.gate.WARN { background: color-mix(in srgb, var(--serious) 20%, transparent); } .gate.WARN i { color: var(--ink); }
 .gate.UNKNOWN { background: color-mix(in srgb, var(--warn) 18%, transparent); } .gate.UNKNOWN i { color: var(--ink-2); }
 
 /* metrics */
@@ -327,6 +339,27 @@ const VERDICT = {
   "BUY CANDIDATE": ["var(--good)", "✓"], "HOLD ZONE": ["var(--warn)", "◐"],
   "PASS (not a buy)": ["var(--muted)", "–"], "REJECT": ["var(--crit)", "✕"], "NO DATA": ["var(--muted)", "?"],
 };
+const ACTION = {
+  "BUY": ["var(--good)", "✓", "Buy"], "BUY AFTER": ["var(--good)", "◷", "Buy after"], "WAIT": ["var(--warn)", "◐", "Wait"],
+  "HOLD": ["var(--accent)", "■", "Hold"], "SELL": ["var(--crit)", "✕", "Sell"], "AVOID": ["var(--crit)", "✕", "Avoid"],
+};
+function recCard(rec) {
+  const [vc, icon, word] = ACTION[rec.action] || ["var(--muted)", "?", rec.action];
+  const lvl = { LOW: 1, MEDIUM: 2, HIGH: 3 }[rec.conviction] || 0;
+  const list = (title, items) => items && items.length ? `<div><h3>${title}</h3><ul>${items.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "";
+  const checks = Object.entries(rec.checks || {});
+  return `<div class="card rec" style="--vc:${vc}">
+    <div class="lead">
+      <span class="badge"><i>${icon}</i>Recommendation</span>
+      <div class="act">${word}${rec.start_date ? `<div style="font-size:20px;font-weight:700;margin-top:4px">${esc(rec.start_date)}</div>` : ""}</div>
+      ${rec.conviction ? `<div class="small" data-tip="${esc(rec.conviction_points.join(" · "))}">Conviction <b>${rec.conviction}</b><div class="conv"><span class="${lvl >= 1 ? "on" : ""}"></span><span class="${lvl >= 2 ? "on" : ""}"></span><span class="${lvl >= 3 ? "on" : ""}"></span></div></div>` : ""}
+      ${rec.position_size ? `<div style="margin-top:16px"><div class="small muted">Position size</div><div style="font-size:24px;font-weight:700" class="num">${pct(rec.position_size)}</div><div class="small muted">${esc(rec.position_note.replace(/^[^(]*\(/, "(").replace(/\)$/, ")"))}</div></div>` : ""}
+      <div class="small muted" style="margin-top:16px">Next review ${esc(rec.next_review)}</div>
+    </div>
+    <div class="body">${list("Why", rec.why)}${list("Risks", rec.risks)}${list("Sell if", rec.sell_if)}
+      ${checks.length ? `<div><h3>Automated checks</h3>${checks.map(([k, v]) => `<div class="small" style="margin-bottom:6px"><span class="gate ${v.status}" style="padding:2px 6px"><i>${{ PASS: "✓", FAIL: "✕", WARN: "!" }[v.status] || "?"}</i></span> <b>${esc(k.replace(/_/g, " "))}</b> <span class="muted">${esc(v.detail)}</span></div>`).join("")}</div>` : ""}
+    </div></div>`;
+}
 const THEME_HELP = {
   value: "How cheap the stock is vs. its sector peers (earnings, cash flow and sales relative to price).",
   quality: "How profitable, stable and low-debt the business is vs. peers.",
@@ -404,9 +437,9 @@ function renderStock(r) {
           <div class="pin" style="left:calc(${pin}% - 2px)"></div></div>
         <div class="legend"><span style="--c:color-mix(in srgb,var(--good) 35%,transparent)">Buy zone (top 30)</span><span style="--c:color-mix(in srgb,var(--warn) 30%,transparent)">Hold zone</span><span style="--c:var(--surface-2)">Not a buy</span></div>
       </div>`; })() : "";
-  const checked = store.get("checks:" + r.ticker, {});
   return `
   <div class="grid">
+    ${r.recommendation ? recCard(r.recommendation) : ""}
     <div class="card verdict" style="--vc:${vc}">
       <div>
         <span class="badge"><i>${icon}</i>${esc(r.verdict)}</span>
@@ -429,8 +462,8 @@ function renderStock(r) {
         <div class="v num">${k === "market_cap" ? money(m[k], ccy) : f(m[k])}</div><div class="h">${help}</div></div>`).join("")}
     </div></div>
     <div class="grid g2">
-      <div class="card"><h2>Before real money</h2><p class="small muted" style="margin-top:-8px">Things free data can't verify. Tick them as you check; saved on this device.</p>
-        ${r.manual_checks.map((c, i) => `<label class="check"><input type="checkbox" data-i="${i}" ${checked[i] ? "checked" : ""}><span>${esc(c)}</span></label>`).join("")}</div>
+      <div class="card"><h2>Data coverage</h2><p style="margin:0 0 8px">Surveillance lists, price bands, promoter pledges, auditor events (India) and SEC restatements, auditor changes and going-concern filings (US) are checked automatically. See "Automated checks" above.</p>
+        <p class="small muted" style="margin:0">${esc(r.not_covered || "")}</p></div>
       <div class="card"><h2>Your paper book</h2>
         <p style="margin:0 0 6px">${r.your_book.held ? "✓ Held in your paper portfolio." : "Not held."}</p>
         ${r.your_book.watchlist_since ? `<p style="margin:0 0 6px">On the watchlist since <b>${esc(r.your_book.watchlist_since)}</b>. A buy needs 10 days in the buy zone plus 2 independent reviews.</p>` : ""}
@@ -452,9 +485,6 @@ async function analyze(t) {
   try {
     const r = await api("/api/analyze", { ticker: t });
     out.innerHTML = renderStock(r);
-    $$(".check input", out).forEach(cb => cb.onchange = () => {
-      const s = store.get("checks:" + t, {}); s[cb.dataset.i] = cb.checked; store.set("checks:" + t, s);
-    });
     if (r.verdict !== "NO DATA") { const rec = [t, ...store.get("recent", []).filter(x => x !== t)].slice(0, 8); store.set("recent", rec); drawRecent(); }
   } catch (e) { out.innerHTML = errorCard(e); }
   go.disabled = false;

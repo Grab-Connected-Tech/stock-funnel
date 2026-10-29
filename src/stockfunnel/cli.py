@@ -38,7 +38,7 @@ def render(r: dict) -> str:
         out += ["", f"## Pending reviews ({len(r['pending_reviews'])})",
                 "BUYs need a valid review first: `stockfunnel packet <universe> <TICKER>` → reviewer fills the schema → "
                 "`stockfunnel review <universe> <TICKER> review.json --reviewer <you>`.", ", ".join(r["pending_reviews"])]
-    out += ["", "## Manual checks before real money"] + [f"- [ ] {c}" for c in r["manual_checks_required"]]
+    out += ["", f"_Every BUY above passed automated NSE/SEC checks. Not covered: {r['not_covered']}_"]
     out += ["", "## Top ranked", "| # | Ticker | Name | Sector | Score | Value | Quality | Mom | LowVol | Yield |",
             "|---|---|---|---|---|---|---|---|---|---|"]
     for x in r["top_ranked"]:
@@ -52,8 +52,23 @@ def render(r: dict) -> str:
 def render_stock(r: dict) -> str:
     if r["verdict"] == "NO DATA":
         return f"{r['ticker']}: {r['detail']}"
-    m, reg, b = r["metrics"], r["regime"], r["your_book"]
+    m, reg, b, rec = r["metrics"], r["regime"], r["your_book"], r["recommendation"]
+    act = rec["action"] + (f" {rec['start_date']}" if rec["start_date"] else "")
     out = [f"# {r['ticker']} · {m.get('name', '')} · {m.get('sector', '')} · {r['as_of']}", "",
+           f"## Recommendation: {act}" + (f" · conviction {rec['conviction']}" if rec["conviction"] else ""), ""]
+    if rec["position_note"]:
+        out.append(f"**Size:** {rec['position_note']}")
+    out += ["**Why:**"] + [f"- {w}" for w in rec["why"]]
+    if rec["risks"]:
+        out += ["**Risks:**"] + [f"- {w}" for w in rec["risks"]]
+    if rec["sell_if"]:
+        out += ["**Sell if:**"] + [f"- {w}" for w in rec["sell_if"]]
+    if rec["checks"]:
+        out += ["**Automated checks:**"] + [f"- {dict(PASS='✓', FAIL='✕', WARN='!').get(v['status'], '?')} {k.replace('_', ' ')}: {v['detail']}"
+                                           for k, v in rec["checks"].items()]
+    if rec["conviction"]:
+        out.append(f"Conviction tally: {', '.join(rec['conviction_points'])}")
+    out += [f"Next review: {rec['next_review']}", "", "## Details", "",
            f"**Verdict: {r['verdict']}**: {r['detail']}",
            f"Peers: {r['peer_universe']}" + ("" if r["member"] else " (not a member; ranked alongside it)"),
            f"Regime: {reg['label']}, max equity {reg['max_equity_exposure']:.0%}", ""]
@@ -67,7 +82,7 @@ def render_stock(r: dict) -> str:
                                        if k not in ("name", "sector"))]
     if b["held"] or b["watchlist_since"] or b["standing_veto"]:
         out.append(f"Your book: held={b['held']}, watchlist since {b['watchlist_since']}, veto={b['standing_veto']}")
-    out += ["", "Before real money:"] + [f"- [ ] {c}" for c in r["manual_checks"]]
+    out += ["", f"_Data coverage: {r['not_covered']}_"]
     return "\n".join(out)
 
 

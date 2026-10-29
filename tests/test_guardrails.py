@@ -163,6 +163,31 @@ def test_bad_prints_repaired():
     assert "SUSP" not in last and last["LIVE"] == 3.0  # suspended stock: no fictional price
 
 
+def test_recommendation_rules():
+    from stockfunnel import recommend
+    scored = pd.DataFrame({"rank": [1.0, 2.0], "vol_1y": [0.2, 0.3], "sector": ["A", "B"], "score": [1.0, 0.5]}, index=["X.NS", "Y.NS"])
+    base = {"ticker": "X.NS", "as_of": "2026-10-27", "rank": 1, "ranked_peers": 2,
+            "themes": {"value": 1.0, "quality": 1.0, "momentum": 1.0, "low_vol": 1.0, "yield": 1.0},
+            "gates": {"failed": [], "unknown": [], "passed": True, "checks": {"piotroski": "PASS"}},
+            "metrics": {}, "regime": {"max_equity_exposure": 1.0},
+            "your_book": {"held": False, "watchlist_since": "2026-10-01", "standing_veto": None}}
+    ok = {"surveillance": {"status": "PASS", "detail": ""}}
+    proven, unproven = {"status": "PASSED"}, {"status": "FAILED"}
+    r = recommend.build(base, {"piotroski": 9}, scored, proven, ok)
+    assert r["action"] == "BUY" and r["conviction"] == "HIGH" and r["position_size"]
+    assert recommend.build(base, {"piotroski": 9}, scored, unproven, ok)["conviction"] == "MEDIUM"  # no proven edge
+    fresh = base | {"your_book": base["your_book"] | {"watchlist_since": None}}
+    r = recommend.build(fresh, {}, scored, proven, ok)
+    assert r["action"] == "BUY AFTER" and r["start_date"] == "2026-11-06"  # cooling-off
+    bad = {"surveillance": {"status": "FAIL", "detail": "on ASM"}}
+    assert recommend.build(base, {}, scored, proven, bad)["action"] == "AVOID"
+    held = base | {"your_book": base["your_book"] | {"held": True}}
+    assert recommend.build(held, {}, scored, proven, bad)["action"] == "SELL"
+    unk = {"surveillance": {"status": "UNKNOWN", "detail": "down"}}
+    assert recommend.build(base, {}, scored, proven, unk)["action"] == "WAIT"  # critical check unverifiable
+    assert recommend.build(base, {"ret_1m": 0.4}, scored, proven, ok)["action"] == "WAIT"  # no chasing
+
+
 def test_deflated_sharpe_penalizes_many_trials():
     rnd = np.random.default_rng(2)
     r = pd.Series(rnd.normal(0.005, 0.04, 120))

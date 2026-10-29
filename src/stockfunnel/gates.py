@@ -53,18 +53,3 @@ def evaluate(m: dict, market: str) -> dict:
     passed = not failed and not tradability_unknown and len(unknown) <= G["max_unknown_gates"]
     return {"passed": passed, "failed": failed, "unknown": unknown, "checks": checks}
 
-
-# What the free data can't verify. Surfaced on every India recommendation; a human (or a paid
-# data source) must clear these before real money moves.
-MANUAL_CHECKS = {
-    "IN": [
-        "Promoter pledge <= 5% of promoter holding and not rising (NSE shareholding filings / Screener.in)",
-        "Not on NSE ASM/GSM/ESM surveillance lists now or in the last 6 months",
-        "Stock is in the F&O segment or has a price band of 20% (no circuit lock-in)",
-        "No auditor resignation or qualified opinion in the last 2 years",
-        "Related-party transactions < 10% of revenue (annual report)",
-    ],
-    "US": [
-        "No going-concern opinion, restatement, or SEC enforcement action in the last 2 years",
-    ],
-}
