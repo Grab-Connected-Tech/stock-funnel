@@ -193,8 +193,57 @@ def revisions(ticker: str) -> dict:
     return {"status": "NEUTRAL", "detail": detail}
 
 
+# ---------------- 5. results calendar ----------------
+
+RESULTS_WINDOW_DAYS, AFTER_RESULTS_DAYS = 5, 3
+
+
+def upcoming_results(ticker: str) -> dict:
+    """Prices jump on results day; don't buy blind into one. WAIT if results are due within a few days.
+    The recommendation also moves a later buy date past the results (see recommend.py)."""
+    import yfinance as yf
+    cal = _cached(f"yf_calendar_{ticker}", lambda: yf.Ticker(ticker).calendar or {}, max_age_days=1)
+    dates = [d for d in (cal.get("Earnings Date") or []) if isinstance(d, date) and d >= date.today()]
+    if not dates:
+        return {"status": "NEUTRAL", "detail": "no scheduled results date found", "date": None}
+    d = min(dates)
+    days = (d - date.today()).days
+    if days <= RESULTS_WINDOW_DAYS:
+        return {"status": "WAIT", "detail": f"results due {d:%d %b %Y}: wait for the numbers", "date": d.isoformat()}
+    return {"status": "NEUTRAL", "detail": f"next results {d:%d %b %Y}", "date": d.isoformat()}
+
+
+# ---------------- 6. revision breadth (tracking only) ----------------
+
+# Signals in SHADOW are computed, shown and graded by the scorecard, but never change a decision until
+# their live record justifies it. Added after seeing examples it would flag, so it must earn its place.
+SHADOW = {"revision_breadth"}
+
+
+def revision_breadth(ticker: str) -> dict:
+    """Net breadth of 30-day estimate revisions: (up - down) / (up + down), with a 2:1 majority rule."""
+    got = _cached(f"yf_estimates_{ticker}", lambda: None, max_age_days=1)
+    rev = got["rev"] if got else None
+    if rev is None or rev.empty:
+        return {"status": "NEUTRAL", "detail": "no analyst coverage"}
+    rows = [p for p in ("0y", "+1y") if p in rev.index]
+    ups = int(sum(rev.at[p, "upLast30days"] for p in rows))
+    downs = int(sum(rev.at[p, "downLast30days"] for p in rows))
+    if ups + downs < 5:
+        return {"status": "NEUTRAL", "detail": f"too few revisions ({ups} up, {downs} down)"}
+    detail = f"{ups} up vs {downs} down estimate revisions in 30 days (tracking only, not used in decisions yet)"
+    if downs >= 2 * max(ups, 1) and downs > ups:
+        return {"status": "WARN", "detail": detail}
+    if ups >= 2 * max(downs, 1) and ups > downs:
+        return {"status": "POSITIVE", "detail": detail}
+    return {"status": "NEUTRAL", "detail": detail}
+
+
 def run(ticker: str, metrics: pd.DataFrame) -> dict[str, dict]:
-    return {"insider_activity": _check(lambda: insiders(ticker)),
-            "corporate_events": _check(lambda: events(ticker, bool(metrics.loc[ticker].get("is_financial")))),
-            "price_behaviour": _check(lambda: price_tells(ticker, metrics)),
-            "analyst_revisions": _check(lambda: revisions(ticker))}
+    out = {"insider_activity": _check(lambda: insiders(ticker)),
+           "corporate_events": _check(lambda: events(ticker, bool(metrics.loc[ticker].get("is_financial")))),
+           "price_behaviour": _check(lambda: price_tells(ticker, metrics)),
+           "analyst_revisions": _check(lambda: revisions(ticker)),
+           "upcoming_results": _check(lambda: upcoming_results(ticker))}
+    out["revision_breadth"] = _check(lambda: revision_breadth(ticker))  # after revisions(): reuses its cache
+    return out

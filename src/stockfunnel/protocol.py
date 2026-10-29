@@ -73,8 +73,9 @@ FIELD_GUIDE = {
     "recommendation.alternative": "present when no backtested edge exists: an index/factor ETF is an equally valid choice",
     "recommendation.checks": "automated official-source checks (NSE surveillance, price band, pledges, auditor events; "
                              "SEC restatements, auditor changes, going concern). PASS | WARN | FAIL | UNKNOWN",
-    "recommendation.signals": "hidden signals: insider buying, corporate red-flag filings, price tells, analyst revisions. "
-                              "POSITIVE | NEUTRAL | WARN | WAIT | FAIL | UNKNOWN",
+    "recommendation.signals": "hidden signals: insider buying, corporate red-flag filings, price tells, analyst revisions, "
+                              "upcoming results date. POSITIVE | NEUTRAL | WARN | WAIT | FAIL | UNKNOWN. "
+                              "revision_breadth is TRACKING ONLY: shown and graded, but it does not affect the action",
     "verdict": "funnel stage result: BUY CANDIDATE (top 30) | HOLD ZONE | PASS (not a buy) | REJECT (failed a gate)",
     "rank / ranked_peers": "position among peers that passed every safety gate (1 = best)",
     "themes": "factor z-scores vs sector peers (0 = average, +1 = better than ~84%, -1 = worse than ~84%): "

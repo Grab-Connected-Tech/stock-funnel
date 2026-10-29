@@ -89,7 +89,11 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     failed_checks = [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in checks.items() if v["status"] == "FAIL"]
     warn_checks = [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in checks.items() if v["status"] == "WARN"]
     unverified = [k.replace("_", " ") for k, v in checks.items() if v["status"] == "UNKNOWN" and k in CRITICAL]
-    signals = signals or {}
+    from .signals import AFTER_RESULTS_DAYS, SHADOW
+    all_signals = signals or {}
+    results = all_signals.get("upcoming_results", {}).get("date")
+    # tracking-only signals and the results calendar don't vote here (results move the buy date below)
+    signals = {k: v for k, v in all_signals.items() if k not in SHADOW and k != "upcoming_results"}
     failed_checks += [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in signals.items() if v["status"] == "FAIL"]
     warn_checks += [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in signals.items() if v["status"] == "WARN"]
     waits = [v["detail"] for v in signals.values() if v["status"] == "WAIT"]
@@ -151,6 +155,10 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     else:
         since = date.fromisoformat(book["watchlist_since"]) if book.get("watchlist_since") else today
         start = since + timedelta(days=PORTFOLIO["cooling_off_days"])
+        res = date.fromisoformat(results) if results else None
+        if not held and res and today <= res <= start + timedelta(days=AFTER_RESULTS_DAYS):
+            start = max(start, res + timedelta(days=AFTER_RESULTS_DAYS))  # buy on the new numbers, not before them
+            why.insert(0, f"Results are due {res:%d %b}: the buy waits until they're out and re-checked")
         action = "HOLD" if held else ("BUY" if start <= today else "BUY AFTER")
         why.insert(0, f"Ranks {rank} of {r['ranked_peers']} after passing every safety gate")
 
@@ -209,7 +217,7 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
         "alternative": None if proven else ETF_ALTERNATIVE.get(market),
         "next_review": (today + timedelta(days=30)).isoformat(),
         "checks": checks,
-        "signals": signals,
+        "signals": all_signals,
     }
 
 
