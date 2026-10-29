@@ -57,6 +57,7 @@ HINDSIGHT REPLAYS (replay_benchmark, replay_monthly)
   the framework against the index, factor ETFs, or your own picks (compare_tickers) over the same period.
 - Always call them "hindsight tests". Never merge them with track_record (the real, recorded-in-advance calls).
 - Respect data_sufficient=false windows (say the framework result isn't available) and repeat the caveats.
+- framework_minus: positive = the framework did better than that benchmark. Field meanings: stockfunnel://replay-guide.
 - One window is an anecdote; prefer replay_monthly or several windows before drawing conclusions.
 
 HONESTY RULES
@@ -92,4 +93,36 @@ FIELD_GUIDE = {
     "regime.max_equity_exposure": "share of money the system allows in stocks now (0.5 = half in cash)",
     "evidence.status": "PASSED | FAILED | STALE | NOT_RUN: backtest of the price factors vs equal-weight and factor ETFs",
     "metrics": "raw inputs (ROE, debt/equity, P/E, Altman Z'', Beneish M, momentum, volatility ...)",
+}
+
+
+REPLAY_GUIDE = {
+    "what_it_is": "Hindsight test: the framework is rebuilt as of a past date using only data available then, and "
+                  "graded on what happened since. Kept separate from track_record (real calls recorded in advance).",
+    "units": "all returns are decimals over the window: 0.05 = +5%, -0.12 = -12%",
+    "replay_benchmark.windows[].as_of": "the past date the framework was rebuilt on (start of the window)",
+    "replay_benchmark.windows[].graded_to": "latest data date (end of the window)",
+    "replay_benchmark.windows[].data_sufficient": "false = too few companies had published statements by as_of to run "
+                                                  "the full funnel; the framework result is omitted. Report it as unavailable",
+    "replay_benchmark.windows[].regime_then": "market regime on as_of; risk_off means the framework held part cash",
+    "replay_benchmark.windows[].equity_exposure_then": "share of money the framework had in stocks (rest in cash at 0%)",
+    "replay_benchmark.windows[].returns.framework_portfolio": "the framework's actual portfolio: top 30 at inverse-volatility "
+                                                             "weights, regime-scaled, held unchanged to graded_to",
+    "replay_benchmark.windows[].returns.framework_top5_equal_weight": "its 5 best-ranked names, equal weight (noisy)",
+    "replay_benchmark.windows[].returns.equal_weight_universe": "average stock in today's index members (survivorship-flattered)",
+    "replay_benchmark.windows[].returns.<ETF name>": "real benchmark ETFs including dividends (US: SPY, RSP; India: "
+                                                     "NIFTYBEES, JUNIORBEES)",
+    "replay_benchmark.windows[].returns.your_tickers_equal_weight": "equal-weight average of compare_tickers",
+    "replay_benchmark.windows[].framework_minus": "framework_portfolio minus each other return: POSITIVE = the framework "
+                                                  "did better, NEGATIVE = it lagged. Absent when data_sufficient is false",
+    "replay_benchmark.windows[].framework_top5": "the 5 best-ranked names then, each with its own return",
+    "replay_benchmark.windows[].framework_holdings": "every holding then: ticker, weight, return",
+    "replay_benchmark.windows[].your_tickers": "each compare_ticker's return (null if no price data)",
+    "replay_monthly.summary.<group>_vs_ew": "group's 3-month return minus the equal-weight universe, per start date; "
+                                            "avg / median across dates",
+    "replay_monthly.summary.<group>.share_right": "share of start dates where top5/top30 beat equal-weight, or where "
+                                                  "avoided stocks lagged it (higher = better for every group)",
+    "replay_monthly.by_date": "one row per start date: as_of, regime, ranked count, and the three *_vs_ew values",
+    "how_to_read": "One window is an anecdote. Prefer several windows or replay_monthly before concluding anything, and "
+                   "always repeat the caveats.",
 }
