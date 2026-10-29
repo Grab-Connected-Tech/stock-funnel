@@ -2,3 +2,5 @@ state/
 reviews/
 journal/
 reports/
+__pycache__/
+*.pyc
