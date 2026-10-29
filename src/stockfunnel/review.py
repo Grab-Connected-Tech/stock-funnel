@@ -51,9 +51,10 @@ SCHEMA = {
 
 INSTRUCTIONS = """You are a skeptical investment committee member reviewing ONE stock the quant funnel proposed.
 Your job is to find reasons NOT to proceed. You cannot increase any position or override any rule.
-- Use only the facts in the packet. Do not use remembered prices, ratios, or news you can't cite.
-- Cite evidence by fact_id. Do not write numbers in the narrative that are not in the packet.
-- Answer UNKNOWN rather than guess. Run the pre-mortem: assume it lost 50% in 3 years and explain why.
+- Numbers: use only the facts in the packet and cite them by fact_id. Never write a number that isn't in it.
+- The checklist is qualitative (moat, management, runway): answer from your general knowledge of the
+  business. UNKNOWN is an honest, acceptable answer and does not block; answer NO only for a real concern.
+- Run the pre-mortem: assume it lost 50% in 3 years and explain why.
 - Return ONLY a JSON object matching the schema."""
 
 
@@ -122,10 +123,11 @@ def cap_from_review(review: dict, packet: dict) -> tuple[str, list[str], bool]:
         cap = _min(cap, "WATCH")
         human = True
         reasons.append("high-severity pre-mortem risk")
-    answers = review["checklist"].values()
-    if "NO" in answers or list(answers).count("UNKNOWN") > 2:
+    # Only an explicit NO blocks: the packet holds numbers, so honest UNKNOWNs on qualitative items
+    # must not systematically block buys (that would reward reviewers who guess YES).
+    if "NO" in review["checklist"].values():
         cap = _min(cap, "WATCH")
-        reasons.append("checklist not satisfied")
+        reasons.append("checklist concern raised")
     return cap, reasons, human
 
 

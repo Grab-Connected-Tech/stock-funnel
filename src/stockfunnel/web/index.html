@@ -353,9 +353,10 @@ function recCard(rec) {
     <div class="lead">
       <span class="badge"><i>${icon}</i>Recommendation</span>
       <div class="act">${word}${rec.sell_date ? `<div style="font-size:15px;font-weight:600;margin-top:6px">sell on ${esc(rec.sell_date)}</div>` : ""}${rec.start_date ? `<div style="font-size:20px;font-weight:700;margin-top:4px">${esc(rec.start_date)}</div>` : ""}</div>
-      ${rec.conviction ? `<div class="small" data-tip="${esc(rec.conviction_points.join(" · "))}">Conviction <b>${rec.conviction}</b><div class="conv"><span class="${lvl >= 1 ? "on" : ""}"></span><span class="${lvl >= 2 ? "on" : ""}"></span><span class="${lvl >= 3 ? "on" : ""}"></span></div></div>` : ""}
+      ${rec.conviction ? `<div class="small" data-tip="${esc(rec.conviction_points.join(" · "))}">Conviction <b>${rec.conviction}</b> <span class="muted">(${rec.conviction_score} pts, a tally, not a probability)</span><div class="conv"><span class="${lvl >= 1 ? "on" : ""}"></span><span class="${lvl >= 2 ? "on" : ""}"></span><span class="${lvl >= 3 ? "on" : ""}"></span></div></div>` : ""}
       ${rec.position_size ? `<div style="margin-top:16px"><div class="small muted">Position size</div><div style="font-size:24px;font-weight:700" class="num">${pct(rec.position_size)}</div><div class="small muted">${esc(rec.position_note.replace(/^[^(]*\(/, "(").replace(/\)$/, ")"))}</div></div>` : ""}
       <div class="small muted" style="margin-top:16px">Next review ${esc(rec.next_review)}</div>
+      ${rec.evidence_scope ? `<div class="small" style="margin-top:14px;padding:10px;border-radius:9px;background:color-mix(in srgb,var(--warn) 18%,transparent)"><b>Evidence scope:</b> ${esc(rec.evidence_scope)}</div>` : ""}
     </div>
     <div class="body">${list("Why", rec.why)}${list("Risks", rec.risks)}${list("Sell if", rec.sell_if)}
       ${rec.alternative ? `<div><h3>Alternative</h3><p class="small" style="margin:0">${esc(rec.alternative)}</p></div>` : ""}

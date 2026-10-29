@@ -5,6 +5,8 @@ from __future__ import annotations
 from .policy import GATES as G
 
 PASS, FAIL, UNKNOWN = "PASS", "FAIL", "UNKNOWN"
+TRADABILITY = {"history_1y", "min_price", "liquidity", "min_market_cap"}
+FORENSIC = {"altman_z2", "beneish_m", "montier_c", "piotroski", "accruals", "cash_generation"}
 
 
 def _check(value, ok) -> str:
@@ -48,8 +50,10 @@ def evaluate(m: dict, market: str) -> dict:
         })
     failed = [k for k, v in checks.items() if v == FAIL]
     unknown = [k for k, v in checks.items() if v == UNKNOWN]
-    # Tradability unknowns are always fatal: we must know we can get in *and out*.
-    tradability_unknown = [k for k in unknown if k in ("history_1y", "min_price", "liquidity", "min_market_cap")]
-    passed = not failed and not tradability_unknown and len(unknown) <= G["max_unknown_gates"]
+    # Tradability and forensic unknowns are always fatal: we must know we can get in and out, and we
+    # never buy a company whose accounts we couldn't screen. One unknown is tolerated only among the
+    # remaining solvency items (e.g. interest coverage when the data omits interest expense).
+    fatal_unknown = [k for k in unknown if k in TRADABILITY | FORENSIC]
+    passed = not failed and not fatal_unknown and len(unknown) <= G["max_unknown_gates"]
     return {"passed": passed, "failed": failed, "unknown": unknown, "checks": checks}
 

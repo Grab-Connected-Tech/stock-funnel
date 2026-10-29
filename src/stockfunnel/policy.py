@@ -23,7 +23,7 @@ GATES = Frozen({
     "max_vol_percentile": 0.90,        # drop top-decile volatility (lottery stocks)
     "max_debt_to_equity": 2.0,         # non-financials
     "min_interest_coverage": 3.0,
-    "max_unknown_gates": 1,            # fail closed: can't verify => can't buy
+    "max_unknown_gates": 1,            # tolerated among non-forensic solvency items only (see gates.py)
 })
 
 # Theme weights (frozen, never optimized). Revisions/SUE omitted: no free estimate history;

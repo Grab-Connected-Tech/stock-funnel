@@ -28,6 +28,9 @@ GATE_LIMITS = {
     "not_lottery_stock": ("vol_percentile", GATES["max_vol_percentile"], "max", "Volatility percentile", 0.2),
 }
 NEAR = 0.25  # within a quarter of the comfort distance = "close to the rejection line"
+EVIDENCE_SCOPE = ("Backtested: the price factors (momentum, low volatility, trend). NOT backtested: value, quality, "
+                  "yield, the safety gates, checks and hidden signals; they are evidence-based rules from published "
+                  "research, but unproven in this system. Conviction is a rule-of-thumb tally, not a probability.")
 ETF_ALTERNATIVE = {
     "US": "Over 2011-2026 a low-cost factor ETF (USMV or QUAL) matched this strategy's risk-adjusted return "
           "with no stock picking. In the US, owning that ETF is an equally good default.",
@@ -150,10 +153,9 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
 
     # ---- conviction: transparent points, not a forecast ----
     pts, notes = 0, []
-    if rank and rank <= 10:
-        pts += 2; notes.append("+2 top-10 rank")  # noqa: E702
-    elif rank and rank <= n:
-        pts += 1; notes.append(f"+1 top-{n} rank")  # noqa: E702
+    # No extra credit for rank 5 vs rank 25: on non-point-in-time data that difference is noise.
+    if rank and rank <= n:
+        pts += 1; notes.append(f"+1 in the top {n}")  # noqa: E702
     pos = sum(z > 0 for _, z in themes)
     if pos >= 4:
         pts += 1; notes.append(f"+1 positive on {pos}/5 factors")  # noqa: E702
@@ -192,6 +194,8 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
         "sell_date": start.isoformat() if start and action == "HOLD" and rank and rank > buffer else None,
         "conviction": conviction if action in ("BUY", "BUY AFTER", "HOLD") else None,
         "conviction_points": notes,
+        "conviction_score": pts if action in ("BUY", "BUY AFTER", "HOLD") else None,
+        "evidence_scope": EVIDENCE_SCOPE,
         "position_size": weight,
         "position_note": None if weight is None else
         f"{weight:.1%} of the portfolio (inverse-volatility, capped at {PORTFOLIO['max_weight'][market]:.0%}"

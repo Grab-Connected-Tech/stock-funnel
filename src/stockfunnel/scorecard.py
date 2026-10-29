@@ -25,6 +25,23 @@ def log(market: str, ticker: str, as_of: str, action: str, price: float | None, 
                                           "price": price, "source": source, "conviction": conviction, "signals": signals})
 
 
+MIN_RELIABLE = 30
+
+
+def _summary(x: pd.Series, want: int | None = None) -> dict:
+    """Mean excess return with a 95% confidence interval; flags samples too small to mean anything."""
+    n = len(x)
+    se = float(x.std() / n ** 0.5) if n > 1 else float("nan")
+    out = {"graded": n, "avg_excess_vs_market": round(float(x.mean()), 4),
+           "ci95": [round(float(x.mean()) - 1.96 * se, 4), round(float(x.mean()) + 1.96 * se, 4)] if n > 1 else None,
+           "reliable": n >= MIN_RELIABLE}
+    if want is not None:
+        out["hit_rate"] = round(float((x * want > 0).mean()), 3)
+    if n < MIN_RELIABLE:
+        out["warning"] = f"only {n} graded calls: noise, not evidence (need {MIN_RELIABLE}+)"
+    return out
+
+
 def grade() -> dict:
     recs = {}
     for e in journal.entries("recommendation"):
@@ -56,9 +73,7 @@ def grade() -> dict:
         stats = {"count": len(g)}
         for h in HORIZONS:
             if h in g and g[h].notna().any():
-                x = g[h].dropna()
-                stats[h] = {"graded": len(x), "avg_excess_vs_market": round(float(x.mean()), 4),
-                            "hit_rate": round(float((x * WANT[action] > 0).mean()), 3)}
+                stats[h] = _summary(g[h].dropna(), WANT[action])
         out["by_action"][action] = stats
     sig_cols = [c for c in df.columns if c.startswith("sig:")]
     out["by_signal"] = {}
@@ -67,8 +82,7 @@ def grade() -> dict:
         stats = {"count": len(g)}
         for h in HORIZONS:
             if h in g and g[h].notna().any():
-                x = g[h].dropna()
-                stats[h] = {"graded": len(x), "avg_excess_vs_market": round(float(x.mean()), 4)}
+                stats[h] = _summary(g[h].dropna())
         out["by_signal"][c[4:]] = stats
     out["note"] = ("hit_rate = share of calls that went the right way vs the market (BUY/HOLD beat it, "
                    "SELL/AVOID lagged it). Needs ~30+ graded calls per action before it means anything.")

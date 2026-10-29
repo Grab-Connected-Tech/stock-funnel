@@ -72,7 +72,8 @@ def render_stock(r: dict) -> str:
         out += ["**Automated checks:**"] + [f"- {dict(PASS='✓', FAIL='✕', WARN='!').get(v['status'], '?')} {k.replace('_', ' ')}: {v['detail']}"
                                            for k, v in rec["checks"].items()]
     if rec["conviction"]:
-        out.append(f"Conviction tally: {', '.join(rec['conviction_points'])}")
+        out.append(f"Conviction tally ({rec['conviction_score']} pts): {', '.join(rec['conviction_points'])}")
+    out.append(f"_Evidence scope: {rec['evidence_scope']}_")
     out += [f"Next review: {rec['next_review']}", "", "## Details", "",
            f"**Verdict: {r['verdict']}**: {r['detail']}",
            f"Peers: {r['peer_universe']}" + ("" if r["member"] else " (not a member; ranked alongside it)"),

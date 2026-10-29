@@ -218,6 +218,22 @@ def test_hidden_signals():
     assert sum(n in ("+1 p", "+1 q") for n in good["conviction_points"]) == 1  # positives add at most one point
 
 
+def test_review_fixes():
+    from stockfunnel import gates, score
+    m = {"history_days": 400, "price": 100, "adv_value_60d": 1e9, "zero_volume_days_60d": 0, "market_cap": 1e11,
+         "vol_percentile": 0.5, "negative_equity": False, "net_issuance_1y": 0, "piotroski": 6, "accruals": 0,
+         "negative_cfo_years_3y": 0, "altman_z2": None, "beneish_m": -2.5, "montier_c": 2, "debt_to_equity": 0.5,
+         "interest_coverage": 10, "bad_print_days_1y": 0}
+    assert not gates.evaluate(m, "US")["passed"]                # unverifiable forensic gate => rejected
+    m |= {"altman_z2": 3.0, "interest_coverage": None}
+    assert gates.evaluate(m, "US")["passed"]                    # one non-forensic unknown tolerated
+    unsure = dict(GOOD2, checklist={k: "UNKNOWN" for k in review.CHECKLIST})
+    assert review.combine("BUY", [GOOD, unsure], PACKET, held=False)["action"] == "BUY"   # honest UNKNOWN doesn't block
+    worried = dict(GOOD2, checklist=GOOD["checklist"] | {"durable_advantage": "NO"})
+    assert review.combine("BUY", [GOOD, worried], PACKET, held=False)["action"] == "WATCH"
+    assert score._z(pd.Series([1.0, 2.0])).isna().all()        # can't standardize => missing, not neutral
+
+
 def test_india_tax_deferral():
     from stockfunnel.portfolio import tax_deferral_days as d
     day = date(2026, 10, 28)

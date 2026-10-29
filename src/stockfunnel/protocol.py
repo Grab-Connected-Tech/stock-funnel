@@ -37,7 +37,7 @@ HOW TO JUDGE A STOCK
    upward. If that context is a serious red flag, say so and advise caution.
 5. Always state: recommendation.conviction and its conviction_points; position_size if any;
    recommendation.alternative if present (it means a cheap index/factor ETF is an equally good choice);
-   and that this is not personal financial advice.
+   recommendation.evidence_scope (what is and isn't backtested), and that this is not personal financial advice.
 6. If action is BUY AFTER, the start_date is a deliberate cooling-off period. Do not shorten it.
 
 HOW TO SCREEN A MARKET

@@ -21,7 +21,9 @@ FINANCIAL_OVERRIDES = {"value": [("earnings_to_price", 1), ("book_to_price", 1)]
 
 def _z(s: pd.Series) -> pd.Series:
     s = s.astype(float)
-    if s.notna().sum() < 3 or s.std() == 0:
+    if s.notna().sum() < 3:  # can't standardize: missing, so it gets MISSING_THEME_Z, not a free neutral 0
+        return s * float("nan")
+    if s.std() == 0:  # everyone identical: genuinely neutral
         return s * 0.0
     s = s.clip(s.quantile(0.01), s.quantile(0.99))
     return ((s - s.mean()) / s.std()).clip(-3, 3)

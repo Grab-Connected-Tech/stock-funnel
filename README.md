@@ -15,7 +15,7 @@ Every decision passes through a fixed funnel. Code makes all quantitative decisi
 | 1 | Universe | Index constituents (S&P 500 / Nifty) | Large/mid caps avoid microcap anomalies that fail replication (Hou-Xue-Zhang 2020) |
 | 2 | Regime | Benchmark month-end below its 10-month SMA → max 50% equity. Bear market + volatility spike → momentum weight halved | Faber 2007; Daniel & Moskowitz 2016. VIX/yield-curve timing deliberately excluded as fragile |
 | 3 | Tradability | ≥1y history, price floor, liquidity ($10M / ₹10cr daily), market-cap floor, top-decile volatility excluded, no bad price prints in the past year | Lottery stocks underperform; you must be able to exit |
-| 4 | Forensic gates | Altman Z″, Beneish M, Piotroski F, Montier C, Sloan accruals, cash generation, dilution, leverage, interest coverage. Separate rules for banks, insurers and utilities. **Fails closed**: unverifiable means rejected | Campbell-Hilscher-Szilagyi 2008: distressed stocks earn *low* returns |
+| 4 | Forensic gates | Altman Z″, Beneish M, Piotroski F, Montier C, Sloan accruals, cash generation, dilution, leverage, interest coverage. Separate rules for banks, insurers and utilities. **Fails closed**: an unverifiable forensic or tradability gate means rejected; at most one unknown is tolerated among the other solvency items | Campbell-Hilscher-Szilagyi 2008: distressed stocks earn *low* returns |
 | 5 | Score | Five themes: value, quality, momentum (risk-adjusted 12-1 and 6-1), low vol, shareholder yield. Sector-neutral, winsorized z-scores with frozen per-market weights (India tilts to quality/momentum) | McLean-Pontiff, JKP 2023 themes, NSE factor-index methodologies, IIMA India factor data |
 | 6 | Portfolio | Top 30, held until rank > 75 (US) / 60 (IN). Inverse-vol weights, 6–7% name cap, 25% sector cap, ≤2% of daily traded value. 10-day cooling-off before any first buy; no buys after a +25% month | Novy-Marx & Velikov (turnover kills anomalies); Barber & Odean (overtrading) |
 | 7 | Review | LLM/human fills a strict schema: checklist (Buffett/Akre/Fundsmith/Marcellus), pre-mortem, kill criteria, evidence citing fact IDs. Veto-only | StockBench, Alpha Arena, FinanceBench: LLMs are poor traders and hallucinate numbers |
@@ -57,7 +57,7 @@ The UI only reads and recommends. It never trades, edits policy or clears vetoes
 ### Review loop (how an AI participates)
 1. `stockfunnel run <universe>`. BUY candidates come back as *pending review*.
 2. `stockfunnel packet <universe> <TICKER>` gives the facts the reviewer may use (no prices, P&L or analyst ratings, to avoid anchoring and herding), the schema, and the instructions.
-3. Each reviewer submits JSON, either via MCP `submit_review` or with `stockfunnel review <universe> <TICKER> review.json --reviewer <you>`. **The reviewer ID is stamped by the entry point**, never taken from the JSON: MCP reviews are `mcp:<STOCKFUNNEL_REVIEWER_ID>` and CLI reviews are `cli:<name>`, so one agent can't pose as two reviewers. A review is valid only if:
+3. Each reviewer submits JSON, either via MCP `submit_review` or with `stockfunnel review <universe> <TICKER> review.json --reviewer <you>`. **The reviewer ID is stamped by the entry point**, never taken from the JSON: MCP reviews are `mcp:<STOCKFUNNEL_REVIEWER_ID>` and CLI reviews are `cli:<name>`. An agent with only MCP access therefore can't pose as two reviewers. The *operator* can, though, by configuring two MCP servers, so independence is only as real as the setup. For genuine independence, make the second review yours via the CLI, or back the two servers with different models. A review is valid only if:
    - it cites at least 3 decision-relevant facts by ID, including at least one bear point;
    - it has a pre-mortem of 3–6 items;
    - its kill criteria are real metrics.
@@ -103,11 +103,11 @@ This tests the price-based sleeve only: momentum + low vol + lottery exclusion +
 
 | Market | Strategy Sharpe / MaxDD | Equal-weight universe | Best investable ETF (≥5y overlap) | Verdict |
 |---|---|---|---|---|
-| India (Nifty 200) | **1.41 / −20%** | 0.88 / −48% | Nifty100 Low Vol 30: 0.89 vs strategy 1.28 (2018+) | **PASSED** all 5 checks |
+| India (Nifty 200) | **1.41 / −20%** | 0.88 / −48% | Nifty100 Low Vol 30: 0.89 vs strategy 1.28 (2018+) | **PASSED** all 6 checks, including worst-case tax: 14.4% vs the ETF's 12.2% a year |
 | US (S&P 500) | 1.00 / −22% | 0.95 / −45% | USMV 1.05, QUAL 0.95, MTUM 0.94 vs strategy 0.93–1.03 | **FAILED**: a factor ETF does as well with no effort |
 
 **How to read this:**
-- **India:** a robust risk-adjusted edge, though survivorship bias inflates it (only today's index members were tested).
+- **India:** a robust risk-adjusted edge, though survivorship bias inflates it (only today's index members were tested). After worst-case short-term tax, the margin over the low-volatility ETF is only about 2 points a year, small enough that survivorship bias could plausibly account for it.
 - **US:** use USMV or QUAL as the default. The stock picks are an alternative, not an improvement.
 - **Trial count:** each re-run of `validate` counts as another trial in the deflated Sharpe. Changing `policy.py` marks old results STALE.
 

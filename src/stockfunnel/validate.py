@@ -28,6 +28,15 @@ FACTOR_ETFS = {
            "MOMENTUM.NS": "Nifty200 momentum 30", "QUAL30IETF.NS": "Nifty200 quality 30"},
 }
 MIN_ETF_MONTHS = 60
+# Worst-case tax test: every calendar year's gain taxed at the short-term rate, losses not carried
+# forward, while the ETF is left untaxed (it would be taxed later at the lower long-term rate).
+WORST_CASE_TAX = {"IN": 0.20}
+
+
+def after_tax_cagr(r: pd.Series, rate: float) -> float:
+    yearly = (1 + r).groupby(r.index.year).prod() - 1
+    taxed = yearly.where(yearly <= 0, yearly * (1 - rate))
+    return float((1 + taxed).prod() ** (12 / len(r)) - 1)
 
 
 def deflated_sharpe(returns: pd.Series, trial_sharpes: list[float], n_trials: int | None = None) -> float:
@@ -175,6 +184,8 @@ def run(universe: str, period: str = "20y") -> dict:
         if len(er) < 12:
             continue
         etfs[t] = {"name": name, "months": len(er), "strategy_sharpe": round(sr(sb), 2), "etf_sharpe": round(sr(er), 2),
+                   **({"strategy_cagr_after_worst_case_tax": round(after_tax_cagr(sb, WORST_CASE_TAX[market]), 4)}
+                      if market in WORST_CASE_TAX else {}),
                    "strategy_cagr": _stats(sb)["cagr"], "etf_cagr": _stats(er)["cagr"],
                    "strategy_max_dd": _stats(sb)["max_drawdown"], "etf_max_dd": _stats(er)["max_drawdown"],
                    "enough_history": len(er) >= MIN_ETF_MONTHS}
@@ -187,6 +198,9 @@ def run(universe: str, period: str = "20y") -> dict:
     judged = [e for e in etfs.values() if e["enough_history"]]
     if judged:  # only ETFs with >= 5 years of overlap count; younger ones are reported, not judged
         verdict["beats_factor_etfs_on_sharpe"] = all(e["strategy_sharpe"] > e["etf_sharpe"] for e in judged)
+        if market in WORST_CASE_TAX:  # a monthly book pays short-term tax; buy-and-hold ETFs mostly don't
+            verdict["beats_etfs_after_worst_case_tax"] = all(
+                e["strategy_cagr_after_worst_case_tax"] > e["etf_cagr"] for e in judged)
     return {
         "universe": universe, "market": market, "period": f"{base.index[0].date()} → {base.index[-1].date()}",
         "strategy": _stats(base), "equal_weight_universe": _stats(ew.dropna()), "index_price_only": _stats(idx.dropna()),
@@ -201,5 +215,6 @@ def run(universe: str, period: str = "20y") -> dict:
                     "fundamental gates/themes not backtested (no point-in-time data)",
                     "backtest omits sector caps, min weight and drift band used live",
                     "index benchmark is price-only (excludes dividends)",
-                    "ETF comparison favours the strategy: ETFs are real (survivorship-free, after fees)"],
+                    "ETF comparison favours the strategy: ETFs are real (survivorship-free, after fees)",
+                    "pre-tax except the India worst-case tax check; a monthly book realises short-term gains"],
     }

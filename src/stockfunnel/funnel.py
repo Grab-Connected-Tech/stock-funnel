@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -102,15 +102,23 @@ def review_packet(t: str, a: dict) -> dict:
             "instructions": review.INSTRUCTIONS, "schema": review.SCHEMA}
 
 
+REVIEW_WINDOW_DAYS = 5  # a review stays usable across a data-date rollover (weekend / late submission)
+
+
 def load_reviews(market: str, as_of: str, t: str) -> list[dict]:
-    p = REVIEW_DIR / market / as_of / f"{t}.json"
-    if not p.exists():
-        return []
-    try:
-        got = json.loads(p.read_text())
-    except json.JSONDecodeError:
-        return [{"invalid": True}]  # counts as an invalid (blocking) review
-    return got if isinstance(got, list) else [got]
+    """Reviews for this ticker filed for any data date in the last few days. Each is re-validated
+    against today's packet, so a review citing facts that no longer exist simply turns invalid."""
+    out, end = [], date.fromisoformat(as_of)
+    for d in range(REVIEW_WINDOW_DAYS + 1):
+        p = REVIEW_DIR / market / (end - timedelta(days=d)).isoformat() / f"{t}.json"
+        if not p.exists():
+            continue
+        try:
+            got = json.loads(p.read_text())
+        except json.JSONDecodeError:
+            got = [{"invalid": True}]  # counts as an invalid (blocking) review
+        out += got if isinstance(got, list) else [got]
+    return out
 
 
 def save_review(market: str, as_of: str, t: str, rev: dict) -> list[str]:
