@@ -276,6 +276,31 @@ def test_results_date_and_shadow_signals():
     assert shadow["action"] == plain["action"] and shadow["conviction_score"] == plain["conviction_score"]  # tracking only
 
 
+def test_second_review_fixes():
+    from stockfunnel import recommend, signals
+    assert signals._last_quarter_end(date(2026, 10, 29)) == date(2026, 9, 30)
+    assert signals._last_quarter_end(date(2026, 1, 5)) == date(2025, 12, 31)
+    assert signals._reporting_deadline(date(2026, 9, 30), india=True) == date(2026, 11, 14)
+    assert signals._reporting_deadline(date(2026, 3, 31), india=True) == date(2026, 5, 30)   # annual results: 60 days
+    rev = pd.DataFrame({"upLast30days": [0, 0], "downLast30days": [0, 0]}, index=["0y", "+1y"])
+    moved = pd.DataFrame({"current": [1.38], "30daysAgo": [1.37], "90daysAgo": [1.3]}, index=["0y"])
+    est = pd.DataFrame({"numberOfAnalysts": [5]}, index=["0y"])
+    assert "unavailable" in signals._annual_counts({"rev": rev, "trend": moved, "est": est})[2]  # missing != zero
+    scored = pd.DataFrame({"rank": [1.0], "vol_1y": [0.2], "sector": ["A"], "score": [1.0]}, index=["X"])
+    base = {"ticker": "X", "as_of": "2026-10-27", "rank": 1, "ranked_peers": 1,
+            "themes": {"value": 1.0, "quality": 1.0, "momentum": 1.0, "low_vol": 1.0, "yield": 1.0},
+            "gates": {"failed": [], "unknown": [], "passed": True, "checks": {}}, "metrics": {},
+            "regime": {"max_equity_exposure": 1.0},
+            "your_book": {"held": False, "watchlist_since": "2026-10-01", "standing_veto": None}}
+    stale = {"upcoming_results": {"status": "WAIT", "detail": "results came out after this snapshot", "date": None}}
+    assert recommend.build(base, {}, scored, {"status": "PASSED"}, {}, signals=stale)["action"] == "WAIT"
+    r = recommend.build(base, {}, scored, {"status": "FAILED"}, {})
+    assert r["action"] == "BUY" and r["action_label"] == "BUY (no proven edge)"
+    assert recommend.build(base, {}, scored, {"status": "PASSED"}, {})["action_label"] == "BUY"
+    drop = recommend.build(base, {"ret_1m": -0.15}, scored, {"status": "PASSED"}, {})
+    assert any("last month" in x for x in drop["risks"])
+
+
 def test_india_tax_deferral():
     from stockfunnel.portfolio import tax_deferral_days as d
     day = date(2026, 10, 28)

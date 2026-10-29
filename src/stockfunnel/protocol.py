@@ -27,7 +27,7 @@ All numbers and decisions are computed by deterministic code from official data.
 
 HOW TO JUDGE A STOCK
 1. Call analyze_stock(ticker, format="json"). India tickers end in .NS (TCS.NS); US are plain (AAPL).
-2. Lead with recommendation.action. It is final. Never upgrade it: AVOID/SELL/WAIT never become BUY,
+2. Lead with recommendation.action_label (the action, marked "(no proven edge)" where applicable). It is final. Never upgrade it: AVOID/SELL/WAIT never become BUY,
    BUY AFTER never becomes "buy now". You may be MORE cautious, and must say why.
 3. Explain using recommendation.why, .risks, .sell_if, .signals and .checks, in plain language.
    Quote only numbers that appear in the tool output. Do not compute, estimate or recall prices,
@@ -64,6 +64,7 @@ trades outside the paper book. submit_review can only block a paper-trading BUY,
 """
 
 FIELD_GUIDE = {
+    "recommendation.action_label": "the action as the headline; buys carry '(no proven edge)' where the backtest failed",
     "recommendation.action": "BUY | BUY AFTER <start_date> (cooling-off) | WAIT (good but not now) | HOLD (keep if owned) "
                              "| SELL (exit if owned) | AVOID (don't buy)",
     "recommendation.conviction": "HIGH | MEDIUM | LOW: a transparent points tally (conviction_points), not a probability",

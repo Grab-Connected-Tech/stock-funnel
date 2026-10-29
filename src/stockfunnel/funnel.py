@@ -142,13 +142,20 @@ DEFAULT_PEERS = {"US": "sp500", "IN": "nifty200"}
 def analyze_stock(ticker: str, universe: str | None = None) -> dict:
     """One stock, judged exactly as the funnel would: gated and ranked against its peer universe.
     Read-only: never touches the book, watchlist or vetoes."""
-    from .policy import PORTFOLIO
     market = data.market_of(ticker)
     universe = universe or DEFAULT_PEERS[market]
-    members = data.universe(universe)[1]
     a = analyze_universe(universe, include=[ticker])
     if ticker not in a["metrics"].index or a["metrics"].at[ticker, "history_days"] == 0:
         return {"ticker": ticker, "verdict": "NO DATA", "detail": "no price history (check the symbol; India needs .NS)"}
+    return stock_report(ticker, a, broker.load(market))
+
+
+def stock_report(ticker: str, a: dict, st: dict, log: bool = True) -> dict:
+    """The single place a stock's verdict and recommendation are computed. Used by analyze_stock AND
+    run, so the same stock on the same data always gets the same answer."""
+    from .policy import PORTFOLIO
+    market, universe = a["market"], a["universe"]
+    members = data.universe(universe)[1]
     g, sc = a["gates"][ticker], a["scored"]
     n, buffer = PORTFOLIO["n_holdings"][market], PORTFOLIO["hold_until_rank"][market]
     rank = int(sc.at[ticker, "rank"]) if ticker in sc.index and pd.notna(sc.at[ticker, "rank"]) else None
@@ -164,7 +171,6 @@ def analyze_stock(ticker: str, universe: str | None = None) -> dict:
         verdict, detail = "HOLD ZONE", f"rank {rank}/{len(sc)}: fine to keep if owned (buffer {buffer}), not a new buy"
     else:
         verdict, detail = "PASS (not a buy)", f"passes gates but ranks {rank}/{len(sc)}; better candidates exist"
-    st = broker.load(market)
     m = a["metrics"].loc[ticker]
     pick = ["name", "sector", "market_cap", "pe", "roe", "roic", "debt_to_equity", "piotroski", "altman_z2", "beneish_m",
             "montier_c", "earnings_yield", "fcf_yield", "mom_12_1", "vol_1y", "max_dd_1y"]
@@ -187,10 +193,11 @@ def analyze_stock(ticker: str, universe: str | None = None) -> dict:
     from . import recommend
     full = {k: (None if isinstance(v, float) and np.isnan(v) else v) for k, v in m.items()}
     from . import scorecard, signals
-    sig = signals.run(ticker, a["metrics"])
+    sig = signals.run(ticker, a["metrics"], a["as_of"])
     out["recommendation"] = recommend.build(out, full, sc, latest_validation(market), checks.run(ticker), signals=sig)
-    scorecard.log(market, ticker, a["as_of"], out["recommendation"]["action"], a["last_prices"].get(ticker), "analyze",
-                  out["recommendation"]["conviction"], {k: v["status"] for k, v in sig.items()})
+    if log:
+        scorecard.log(market, ticker, a["as_of"], out["recommendation"]["action"], a["last_prices"].get(ticker), "analyze",
+                      out["recommendation"]["conviction"], {k: v["status"] for k, v in sig.items()})
     return out
 
 
@@ -259,13 +266,13 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
             bad = [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in res.items()
                    if v["status"] == "FAIL" or (v["status"] == "UNKNOWN" and k in checks.CRITICAL)]
             if t in a["metrics"].index:
-                run_signals[t] = sigs.run(t, a["metrics"])
+                run_signals[t] = sigs.run(t, a["metrics"], a["as_of"])
                 bad += [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in run_signals[t].items() if v["status"] in ("FAIL", "WAIT")]
             if bad:
                 act.update(action="HOLD" if t in held else "WATCH", reason="pre-trade check: " + "; ".join(bad),
                            target_weight=round(held.get(t, 0.0), 4))
         elif t in held and act["action"] in ("HOLD", "TRIM") and t in a["metrics"].index:
-            run_signals[t] = sigs.run(t, a["metrics"])
+            run_signals[t] = sigs.run(t, a["metrics"], a["as_of"])
             severe = [v["detail"] for v in run_signals[t].values() if v["status"] == "FAIL"]
             if severe:  # a severe corporate event on a holding is a sell, like a failed safety gate
                 act.update(action="SELL", reason="corporate red flag: " + severe[0], target_weight=0.0)
@@ -288,11 +295,6 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
 
     if official:  # every official call joins the out-of-sample track record
         from . import scorecard
-        for t, f in final.items():
-            act = {"WATCH": "BUY AFTER" if f["reason"].startswith("cooling-off") else None, "TRIM": "HOLD"}.get(f["action"], f["action"])
-            if act:
-                scorecard.log(market, t, a["as_of"], act, last.get(t), "run",
-                              signals={k: v["status"] for k, v in run_signals.get(t, {}).items()} or None)
         for t in a["rejected"]:  # grading rejected stocks over time tests whether the gates avoid losers
             if t not in final:
                 scorecard.log(market, t, a["as_of"], "AVOID", last.get(t), "run")
@@ -306,6 +308,19 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
     if official:
         broker.save(state)
 
+    # What the user sees is the SAME recommendation analyze_stock gives (stock_report). The paper book's
+    # own decision (which additionally needs reviews in autopilot) is kept alongside as paper_action.
+    shown = {}
+    for t, f in final.items():
+        if t not in a["metrics"].index or t not in a["gates"]:
+            shown[t] = {**f, "paper_action": f["action"]}
+            continue
+        rec = stock_report(t, a, state, log=official)["recommendation"]
+        shown[t] = {**f, "action": rec["action"], "start_date": rec["start_date"], "sell_date": rec.get("sell_date"),
+                    "conviction": rec["conviction"], "position_size": rec["position_size"], "why": rec["why"],
+                    "risks": rec["risks"][:3], "reason": rec["why"][0] if rec["why"] else f["reason"],
+                    "paper_action": f["action"], "paper_reason": f["reason"]}
+
     result = {
         "as_of": a["as_of"], "mode": mode if official else f"{mode} (what-if: state untouched)", "market": market, "universe": universe,
         "regime": a["regime"], "risk": risk, "validation": latest_validation(market),
@@ -313,7 +328,7 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
         "standing_vetoes": vetoes,
         "funnel": {"universe": len(a["metrics"]), "passed_gates": len(a["scored"]),
                    "rejected": len(a["rejected"]), "top_rejection_reasons": _top_reasons(a["rejected"])},
-        "actions": final, "executions": executions,
+        "actions": shown, "executions": executions,
         "pending_reviews": sorted(t for t, f in final.items() if f.get("pending_review")),
         "not_covered": checks.NOT_COVERED[market],
         "top_ranked": _top_table(a["scored"], 15),

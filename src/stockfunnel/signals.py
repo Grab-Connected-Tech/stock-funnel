@@ -166,24 +166,49 @@ def price_tells(ticker: str, metrics: pd.DataFrame) -> dict:
 
 # ---------------- 4. analyst revisions ----------------
 
-def revisions(ticker: str) -> dict:
-    """Chan, Jegadeesh & Lakonishok (1996): estimate revisions predict returns."""
+def _estimates(ticker: str) -> dict:
     import yfinance as yf
 
     def fetch():
         t = yf.Ticker(ticker)
-        return {"trend": t.eps_trend, "rev": t.eps_revisions}
-    got = _cached(f"yf_estimates_{ticker}", fetch, max_age_days=1)
-    trend, rev = got["trend"], got["rev"]
-    if trend is None or trend.empty or rev is None or rev.empty:
-        return {"status": "NEUTRAL", "detail": "no analyst coverage"}
+        return {"trend": t.eps_trend, "rev": t.eps_revisions, "est": t.earnings_estimate}
+    return _cached(f"yf_estimates2_{ticker}", fetch, max_age_days=1)
+
+
+def _annual_counts(got: dict) -> tuple[int, int, str | None]:
+    """30-day up/down revision counts for the annual estimates, plus a reason if they can't be trusted.
+    Missing data must never read as 'no revisions': the provider sometimes omits annual counts even
+    while the estimates themselves moved."""
+    rev, trend, est = got["rev"], got["trend"], got.get("est")
+    rows = [p for p in ("0y", "+1y") if rev is not None and p in rev.index]
+    ups = int(sum(rev.at[p, "upLast30days"] for p in rows)) if rows else 0
+    downs = int(sum(rev.at[p, "downLast30days"] for p in rows)) if rows else 0
+    analysts = int(est.at["0y", "numberOfAnalysts"]) if est is not None and not est.empty and "0y" in est.index \
+        and pd.notna(est.at["0y", "numberOfAnalysts"]) else None
+    coverage = f"{analysts} analyst{'s' if analysts != 1 else ''} in the data source" if analysts else "coverage unknown"
+    if not rows:
+        return ups, downs, f"revision data unavailable ({coverage})"
+    moved = trend is not None and not trend.empty and "0y" in trend.index and \
+        abs(trend.at["0y", "current"] - trend.at["0y", "30daysAgo"]) > 1e-9
+    if ups + downs == 0 and moved:
+        return ups, downs, f"revision counts unavailable: estimates moved but the provider reports none ({coverage})"
+    return ups, downs, None if ups + downs else f"no revisions in 30 days ({coverage})"
+
+
+def revisions(ticker: str) -> dict:
+    """Chan, Jegadeesh & Lakonishok (1996): estimate revisions predict returns."""
+    got = _estimates(ticker)
+    trend = got["trend"]
+    if trend is None or trend.empty:
+        return {"status": "NEUTRAL", "detail": "no analyst coverage in the data source"}
+    ups, downs, problem = _annual_counts(got)
+    if problem and "unavailable" in problem:
+        return {"status": "UNKNOWN", "detail": problem}
     rows = [p for p in ("0y", "+1y") if p in trend.index]
     changes = [trend.at[p, "current"] / trend.at[p, "90daysAgo"] - 1 for p in rows
                if trend.at[p, "90daysAgo"] and trend.at[p, "90daysAgo"] > 0]
-    ups = sum(rev.at[p, "upLast30days"] for p in rows if p in rev.index)
-    downs = sum(rev.at[p, "downLast30days"] for p in rows if p in rev.index)
     if not changes or ups + downs < 3:
-        return {"status": "NEUTRAL", "detail": "too few analyst revisions to read"}
+        return {"status": "NEUTRAL", "detail": problem or f"too few revisions to read ({ups} up, {downs} down)"}
     chg = float(np.mean(changes))
     detail = f"consensus EPS {chg:+.1%} over 90 days; {ups} up vs {downs} down revisions (30 days)"
     if chg <= -REVISION_PCT and downs > ups:
@@ -198,37 +223,78 @@ def revisions(ticker: str) -> dict:
 RESULTS_WINDOW_DAYS, AFTER_RESULTS_DAYS = 5, 3
 
 
-def upcoming_results(ticker: str) -> dict:
-    """Prices jump on results day; don't buy blind into one. WAIT if results are due within a few days.
-    The recommendation also moves a later buy date past the results (see recommend.py)."""
+def _last_quarter_end(d: date) -> date:
+    q_month = ((d.month - 1) // 3) * 3  # 0, 3, 6, 9 -> quarter that ended before this one started
+    return (date(d.year, q_month + 1, 1) - timedelta(days=1)) if q_month else date(d.year - 1, 12, 31)
+
+
+def _reporting_deadline(quarter_end: date, india: bool) -> date:
+    """Legal filing deadlines: India SEBI LODR 45 days (60 for the March/annual quarter);
+    US 10-Q ~45 days, 10-K up to 75 days (December year-ends)."""
+    annual = quarter_end.month == (3 if india else 12)
+    return quarter_end + timedelta(days=(60 if india else 75) if annual else 45)
+
+
+def upcoming_results(ticker: str, as_of: date | None = None) -> dict:
+    """Prices jump on results day; never decide on numbers that are about to change, or already have.
+    WAIT when: results came out after this data snapshot; results are due within a few days; or a quarter
+    has ended, it isn't reported yet and we're inside the legal reporting window with no date published.
+    The recommendation also moves a later buy date past a known results date (see recommend.py)."""
     import yfinance as yf
+
+    from .data import fundamentals
+    today, as_of = date.today(), as_of or date.today()
     cal = _cached(f"yf_calendar_{ticker}", lambda: yf.Ticker(ticker).calendar or {}, max_age_days=1)
-    dates = [d for d in (cal.get("Earnings Date") or []) if isinstance(d, date) and d >= date.today()]
-    if not dates:
-        return {"status": "NEUTRAL", "detail": "no scheduled results date found", "date": None}
-    d = min(dates)
-    days = (d - date.today()).days
-    if days <= RESULTS_WINDOW_DAYS:
-        return {"status": "WAIT", "detail": f"results due {d:%d %b %Y}: wait for the numbers", "date": d.isoformat()}
-    return {"status": "NEUTRAL", "detail": f"next results {d:%d %b %Y}", "date": d.isoformat()}
+    dates = sorted(d for d in (cal.get("Earnings Date") or []) if isinstance(d, date))
+    q = fundamentals(ticker).get("income_q")
+    latest_q = max(q.columns).date() if q is not None and not q.empty else None
+
+    released = [d for d in dates if as_of < d <= today]
+    if released:
+        return {"status": "WAIT", "detail": f"results came out {released[-1]:%d %b %Y}, after this data snapshot "
+                                            f"({as_of:%d %b}): recompute on the new numbers", "date": None}
+    future = [d for d in dates if d > as_of]
+    if future:
+        d = future[0]
+        if (d - as_of).days <= RESULTS_WINDOW_DAYS:
+            return {"status": "WAIT", "detail": f"results due {d:%d %b %Y}: wait for the numbers", "date": d.isoformat()}
+        return {"status": "NEUTRAL", "detail": f"next results {d:%d %b %Y}", "date": d.isoformat()}
+    qe = _last_quarter_end(today)
+    deadline = _reporting_deadline(qe, ticker.endswith((".NS", ".BO")))
+    if latest_q and latest_q < qe and today <= deadline:
+        return {"status": "WAIT", "detail": f"quarter ended {qe:%d %b} isn't reported yet (due by {deadline:%d %b}) "
+                                            "and no date is published: wait for the numbers", "date": None}
+    if latest_q and latest_q >= qe:
+        return {"status": "NEUTRAL", "detail": f"latest quarter ({latest_q:%b %Y}) reported; next date not published yet",
+                "date": None}
+    return {"status": "NEUTRAL", "detail": "no scheduled results date found", "date": None}
 
 
 # ---------------- 6. revision breadth (tracking only) ----------------
 
 # Signals in SHADOW are computed, shown and graded by the scorecard, but never change a decision until
 # their live record justifies it. Added after seeing examples it would flag, so it must earn its place.
-SHADOW = {"revision_breadth"}
+SHADOW = {"revision_breadth", "forward_earnings"}
+FORWARD_DROP = -0.15  # consensus next-year EPS this far below trailing EPS
+
+
+def forward_earnings(ticker: str, metrics: pd.DataFrame) -> dict:
+    """Consensus expects earnings to fall: trailing numbers may be a peak (tracking only)."""
+    chg = metrics.loc[ticker].get("forward_eps_change")
+    if chg is None or chg != chg:
+        return {"status": "NEUTRAL", "detail": "no forward estimate in the data source"}
+    detail = f"consensus forward EPS {chg:+.0%} vs trailing (tracking only, not used in decisions yet)"
+    return {"status": "WARN" if chg <= FORWARD_DROP else "NEUTRAL", "detail": detail}
 
 
 def revision_breadth(ticker: str) -> dict:
-    """Net breadth of 30-day estimate revisions: (up - down) / (up + down), with a 2:1 majority rule."""
-    got = _cached(f"yf_estimates_{ticker}", lambda: None, max_age_days=1)
-    rev = got["rev"] if got else None
-    if rev is None or rev.empty:
-        return {"status": "NEUTRAL", "detail": "no analyst coverage"}
-    rows = [p for p in ("0y", "+1y") if p in rev.index]
-    ups = int(sum(rev.at[p, "upLast30days"] for p in rows))
-    downs = int(sum(rev.at[p, "downLast30days"] for p in rows))
+    """Net breadth of 30-day estimate revisions, with a 2:1 majority rule."""
+    got = _estimates(ticker)
+    if got["rev"] is None or got["rev"].empty:
+        return {"status": "NEUTRAL", "detail": "no analyst coverage in the data source"}
+    ups, downs, problem = _annual_counts(got)
+    if problem and "unavailable" in problem:
+        return {"status": "UNKNOWN", "detail": problem}
     if ups + downs < 5:
         return {"status": "NEUTRAL", "detail": f"too few revisions ({ups} up, {downs} down)"}
     detail = f"{ups} up vs {downs} down estimate revisions in 30 days (tracking only, not used in decisions yet)"
@@ -239,11 +305,13 @@ def revision_breadth(ticker: str) -> dict:
     return {"status": "NEUTRAL", "detail": detail}
 
 
-def run(ticker: str, metrics: pd.DataFrame) -> dict[str, dict]:
+def run(ticker: str, metrics: pd.DataFrame, as_of: date | str | None = None) -> dict[str, dict]:
+    as_of = date.fromisoformat(as_of) if isinstance(as_of, str) else as_of
     out = {"insider_activity": _check(lambda: insiders(ticker)),
            "corporate_events": _check(lambda: events(ticker, bool(metrics.loc[ticker].get("is_financial")))),
            "price_behaviour": _check(lambda: price_tells(ticker, metrics)),
            "analyst_revisions": _check(lambda: revisions(ticker)),
-           "upcoming_results": _check(lambda: upcoming_results(ticker))}
+           "upcoming_results": _check(lambda: upcoming_results(ticker, as_of))}
     out["revision_breadth"] = _check(lambda: revision_breadth(ticker))  # after revisions(): reuses its cache
+    out["forward_earnings"] = _check(lambda: forward_earnings(ticker, metrics))
     return out

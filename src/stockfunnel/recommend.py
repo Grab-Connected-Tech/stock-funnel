@@ -92,6 +92,8 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     from .signals import AFTER_RESULTS_DAYS, RESULTS_WINDOW_DAYS, SHADOW
     all_signals = signals or {}
     results = all_signals.get("upcoming_results", {}).get("date")
+    results_block = all_signals.get("upcoming_results", {}) if all_signals.get("upcoming_results", {}).get("status") == "WAIT" \
+        and not results else None  # stale snapshot / unreported quarter: no date to wait for, so WAIT
     # tracking-only signals and the results calendar don't vote here (results move the buy date below)
     signals = {k: v for k, v in all_signals.items() if k not in SHADOW and k != "upcoming_results"}
     failed_checks += [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in signals.items() if v["status"] == "FAIL"]
@@ -117,6 +119,9 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     risks = warn_checks + risks
     if reg["max_equity_exposure"] < 1:
         risks.append(f"Market is risk-off: the system keeps only {reg['max_equity_exposure']:.0%} of money in stocks")
+    if (fm.get("ret_1m") or 0) <= -0.10:  # 12-1 momentum skips the latest month by design; say so when it matters
+        risks.append(f"Down {abs(fm['ret_1m']):.0%} in the last month: the price-trend score deliberately ignores "
+                     "the latest month, so it doesn't reflect this drop yet")
     if (m.get("max_dd_1y") or 0) < -0.3:
         risks.append(f"Fell {abs(m['max_dd_1y']):.0%} from its peak within the past year")
 
@@ -146,6 +151,9 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     elif (m_ret := fm.get("ret_1m")) is not None and m_ret > PORTFOLIO["max_1m_return_for_buy"]:
         action = "WAIT"
         why.insert(0, f"Ranks {rank}, but jumped {m_ret:.0%} this month; the system doesn't chase spikes")
+    elif results_block and not held and rank <= n:
+        action = "WAIT"
+        why.insert(0, f"Ranks {rank}, but {results_block['detail']}")
     elif waits and not held and rank <= n:
         action = "WAIT"
         why.insert(0, f"Ranks {rank}, but something unexplained just happened: {waits[0]}. Wait for it to settle")
@@ -184,10 +192,11 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     proven = validation.get("status") == "PASSED"
     # The backtest validates only the price factors (momentum, low volatility). Credit that evidence
     # only when those factors are what make this stock attractive; value/quality/yield are untested.
-    tested = [r["themes"].get(k) for k in ("momentum", "low_vol") if r["themes"].get(k) is not None]
-    tested_avg = sum(tested) / len(tested) if tested else None
+    tested = {k: r["themes"][k] for k in ("momentum", "low_vol") if r["themes"].get(k) is not None}
+    tested_avg = sum(tested.values()) / len(tested) if tested else None
     if proven and tested_avg is not None and tested_avg > 0:
-        pts += 1; notes.append("+1 its strengths include the backtested price factors")  # noqa: E702
+        named = " and ".join({"momentum": "price trend", "low_vol": "low volatility"}[k] for k, z in tested.items() if z > 0)
+        pts += 1; notes.append(f"+1 backtested factor in its favour: {named}")  # noqa: E702
     elif proven:
         notes.append("no evidence point: ranked mainly on value/quality, which aren't backtested yet")
     conviction = "HIGH" if pts >= 4 else "MEDIUM" if pts >= 2 else "LOW"
@@ -202,6 +211,8 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
 
     return {
         "action": action,
+        # headline that can't overstate: where the strategy has no proven edge, every buy says so
+        "action_label": action + ("" if proven or action not in ("BUY", "BUY AFTER") else " (no proven edge)"),
         "start_date": start.isoformat() if start and action == "BUY AFTER" else None,
         "sell_date": start.isoformat() if start and action == "HOLD" and rank and rank > buffer else None,
         "conviction": conviction if action in ("BUY", "BUY AFTER", "HOLD") else None,

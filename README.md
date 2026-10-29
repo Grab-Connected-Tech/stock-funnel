@@ -37,7 +37,8 @@ uv run stockfunnel run nifty200              # manual mode: recommendations repo
 uv run stockfunnel analyze TCS.NS            # one stock: verdict, gates, rank vs peers, factor scores
 uv run stockfunnel run sp500 --mode autopilot   # paper-trade (BUYs need reviews)
 uv run stockfunnel status IN                 # paper book, drawdown, kill-switch state
-uv run python tests/test_guardrails.py       # self-check of the guardrails
+uv run python tests/test_guardrails.py       # offline self-check of the guardrails
+uv run python tests/regression_live.py       # live regression checks (network): tools agree, sector rules, data honesty
 ```
 
 Reports are written to `reports/`, paper books to `state/`, reviews to `reviews/`, and the journal to `journal/`.
@@ -119,7 +120,10 @@ No weight or threshold was re-fitted to the backtest. That would raise backtest 
 - **Evidence scoped honestly.** The backtest covers price factors only, so conviction credits it only when a stock's strengths include momentum or low volatility.
 - **Fresher fundamentals.** Valuation and profitability use trailing 12 months when 4 consecutive quarters exist. The forensic gates stay on audited annual statements.
 - **Right benchmark.** Validation now compares against investable factor ETFs, not just equal-weight.
-- **Normalized earnings.** When current profit is more than 1.5× its multi-year average (cyclical peaks such as refiners, or one-off gains), value and quality are judged on the average, and the stock is flagged "possible peak-cycle earnings" (Graham).
+- **One verdict.** `analyze_stock`, `run_funnel` and `plan_investment` all compute a stock's recommendation in one place (`funnel.stock_report`), so they can't disagree. The paper book's own decision is shown separately as `paper_action`.
+- **Results timing.** A buy waits when results came out after the data snapshot, are due within days, or a quarter is unreported inside the legal deadline with no date published.
+- **Data honesty.** Missing analyst-revision counts read "unavailable" (with source coverage), never "0 up, 0 down".
+- **Normalized earnings.** When current profit is more than 1.5× its multi-year median (cyclical peaks such as refiners, or one-off gains), value and quality are judged on the average, and the stock is flagged "possible peak-cycle earnings" (Graham).
 - **Tax-aware selling (India).** A rank-based sell of a winner within 60 days of its 1-year mark waits for the 12.5% long-term rate instead of 20%. Safety-gate sells never wait.
 - **Track record.** Recommendations are logged and graded out of sample, including each hidden signal on its own (`scorecard` → `by_signal`). A signal that doesn't prove itself within a year should be removed.
 

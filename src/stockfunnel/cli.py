@@ -21,12 +21,13 @@ def render(r: dict) -> str:
            _validation_line(r["validation"]),
            f"**Funnel**: {f['universe']} → {f['passed_gates']} passed gates ({f['rejected']} rejected; top reasons: "
            + ", ".join(f"{k} {v}" for k, v in f["top_rejection_reasons"].items()) + ")", "",
-           "| Ticker | Quant | Final | Target | Why |", "|---|---|---|---|---|"]
-    order = {a: i for i, a in enumerate(("BUY", "TRIM", "SELL", "HOLD", "WATCH"))}
-    for t, a in sorted(r["actions"].items(), key=lambda kv: order[kv[1]["action"]]):
-        why = a["reason"] + (f" · review: {'; '.join(a['review_reasons'])}" if a.get("review_reasons") else "")
+           "| Ticker | Recommendation | Conviction | Size | Why | Paper book |", "|---|---|---|---|---|---|"]
+    order = {a: i for i, a in enumerate(("BUY", "BUY AFTER", "SELL", "TRIM", "HOLD", "WAIT", "WATCH", "AVOID"))}
+    for t, a in sorted(r["actions"].items(), key=lambda kv: (order.get(kv[1]["action"], 9), kv[0])):
+        act = a["action"] + (f" {a['start_date']}" if a.get("start_date") else "") + (f" (sell {a['sell_date']})" if a.get("sell_date") else "")
         flag = " ⚠ human review" if a.get("human_review") else ""
-        out.append(f"| {t} | {a['quant_action']} | **{a['action']}**{flag} | {a['target_weight']:.1%} | {why} |")
+        size = f"{a['position_size']:.1%}" if a.get("position_size") else "–"
+        out.append(f"| {t} | **{act}**{flag} | {a.get('conviction') or '–'} | {size} | {a['reason']} | {a.get('paper_action', '')} |")
     if r["standing_vetoes"]:
         out += ["", "## Standing vetoes (cleared only by a human: `stockfunnel clear-veto`)"] + [
             f"- {t}: {v['reason']} (since {v['date']})" for t, v in r["standing_vetoes"].items()]
@@ -53,7 +54,7 @@ def render_stock(r: dict) -> str:
     if r["verdict"] == "NO DATA":
         return f"{r['ticker']}: {r['detail']}"
     m, reg, b, rec = r["metrics"], r["regime"], r["your_book"], r["recommendation"]
-    act = rec["action"] + (f" {rec['start_date']}" if rec["start_date"] else "")
+    act = rec.get("action_label", rec["action"]) + (f" {rec['start_date']}" if rec["start_date"] else "")
     out = [f"# {r['ticker']} · {m.get('name', '')} · {m.get('sector', '')} · {r['as_of']}", "",
            f"## Recommendation: {act}" + (f" · conviction {rec['conviction']}" if rec["conviction"] else ""), ""]
     if rec["position_note"]:

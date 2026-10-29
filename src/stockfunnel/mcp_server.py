@@ -63,15 +63,16 @@ def run_funnel(universe: str, mode: str = "manual", format: str = "json") -> str
 
 
 @mcp.tool()
-def plan_investment(amount: float, market: str = "IN", months: int = 3, target_monthly_return: float | None = None) -> str:
+def plan_investment(amount: float, market: str = "IN", months: int = 3, target_monthly_return: float | None = None,
+                    fractional_shares: bool | None = None) -> str:
     """Turn an amount of money into a concrete plan: which stocks and how many shares (or the index fund when the amount
     is too small to diversify), cash held back by the market regime, buy-from dates, and HISTORICAL odds of reaching a
     hoped-for return (e.g. target_monthly_return=0.01 for 1%/month). Use this for any 'I have X to invest' question.
-    market: 'IN' or 'US'. Never present the odds as a forecast."""
+    market: 'IN' or 'US'. fractional_shares defaults to yes for US, no for India. Never present the odds as a forecast."""
     if market not in ("IN", "US"):
         return "market must be 'IN' or 'US'"
     from .plan import plan_investment as build
-    return dumps(build(float(amount), market, int(months), target_monthly_return))
+    return dumps(build(float(amount), market, int(months), target_monthly_return, fractional=fractional_shares))
 
 
 @mcp.tool()

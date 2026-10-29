@@ -85,12 +85,13 @@ def fundamental_metrics(f: dict) -> dict:
     # on purpose: a trough never makes a stock look better than its current numbers.
     hist_ni = [x for x in nis if x is not None]
     hist_ebit = [x for x in (item(inc, acc.EBIT, y) for y in range(4)) if x is not None]
-    norm_ni = float(np.mean(hist_ni)) if len(hist_ni) >= 3 else None
+    # median, not mean: one super-cycle year (e.g. fertilizer 2022) must not make today's peak look normal
+    norm_ni = float(np.median(hist_ni)) if len(hist_ni) >= 3 else None
     earnings_vs_normal = div(ni_v, norm_ni) if norm_ni and norm_ni > 0 and ni_v else None
     peak = bool(earnings_vs_normal and earnings_vs_normal > GATES["peak_earnings_ratio"])
     if peak:
         ni_v = norm_ni
-        ebit_v = float(np.mean(hist_ebit)) if len(hist_ebit) >= 3 else ebit_v
+        ebit_v = float(np.median(hist_ebit)) if len(hist_ebit) >= 3 else ebit_v
 
     # REIT funds from operations ~ NAREIT FFO: net income + real-estate depreciation, minus gains on
     # property sales (cash-flow reconciling lines carry gains with a negative sign, so they are added).
@@ -109,6 +110,8 @@ def fundamental_metrics(f: dict) -> dict:
         "is_reit": is_reit,
         "earnings_vs_normal": round(earnings_vs_normal, 3) if earnings_vs_normal else None,
         "peak_cycle_earnings": peak,
+        "forward_eps_change": (info["forwardEps"] / info["trailingEps"] - 1)
+        if info.get("forwardEps") and info.get("trailingEps") and info["trailingEps"] > 0 else None,
         "market_cap": mcap,
         "currency": info.get("currency"),
         "years_of_statements": int(inc.shape[1]) if inc is not None and not inc.empty else 0,
@@ -142,8 +145,9 @@ def fundamental_metrics(f: dict) -> dict:
         "net_debt_to_ebitda": div(None if debt is None else debt - cash, item(inc, ["Normalized EBITDA", "EBITDA"])),
         # value
         "earnings_yield": div(ebit_v, ev) if ev and ev > 0 else None,  # Greenblatt EBIT/EV
-        "fcf_yield": div(fcf, mcap),
-        "fcf_to_ev": div(fcf, ev) if ev and ev > 0 else None,
+        # Free cash flow means little for banks/insurers (cash flows are their raw material), so omit it.
+        "fcf_yield": None if is_fin else div(fcf, mcap),
+        "fcf_to_ev": None if is_fin else div(fcf, ev) if ev and ev > 0 else None,
         "sales_to_ev": div(rev_v, ev) if ev and ev > 0 else None,
         "earnings_to_price": div(ni_v, mcap),
         "book_to_price": div(eq, mcap),

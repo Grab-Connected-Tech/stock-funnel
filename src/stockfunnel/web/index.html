@@ -352,7 +352,7 @@ function recCard(rec) {
   return `<div class="card rec" style="--vc:${vc}">
     <div class="lead">
       <span class="badge"><i>${icon}</i>Recommendation</span>
-      <div class="act">${word}${rec.sell_date ? `<div style="font-size:15px;font-weight:600;margin-top:6px">sell on ${esc(rec.sell_date)}</div>` : ""}${rec.start_date ? `<div style="font-size:20px;font-weight:700;margin-top:4px">${esc(rec.start_date)}</div>` : ""}</div>
+      <div class="act">${word}${rec.action_label && rec.action_label.includes("no proven edge") ? `<div style="font-size:14px;font-weight:600;margin-top:6px;color:var(--crit)">no proven edge in this market</div>` : ""}${rec.sell_date ? `<div style="font-size:15px;font-weight:600;margin-top:6px">sell on ${esc(rec.sell_date)}</div>` : ""}${rec.start_date ? `<div style="font-size:20px;font-weight:700;margin-top:4px">${esc(rec.start_date)}</div>` : ""}</div>
       ${rec.conviction ? `<div class="small" data-tip="${esc(rec.conviction_points.join(" · "))}">Conviction <b>${rec.conviction}</b> <span class="muted">(${rec.conviction_score} pts, a tally, not a probability)</span><div class="conv"><span class="${lvl >= 1 ? "on" : ""}"></span><span class="${lvl >= 2 ? "on" : ""}"></span><span class="${lvl >= 3 ? "on" : ""}"></span></div></div>` : ""}
       ${rec.position_size ? `<div style="margin-top:16px"><div class="small muted">Position size</div><div style="font-size:24px;font-weight:700" class="num">${pct(rec.position_size)}</div><div class="small muted">${esc(rec.position_note.replace(/^[^(]*\(/, "(").replace(/\)$/, ")"))}</div></div>` : ""}
       <div class="small muted" style="margin-top:16px">Next review ${esc(rec.next_review)}</div>
@@ -504,7 +504,7 @@ function openStock(t) { show("analyze"); market = isIN(t) ? "IN" : "US"; analyze
 /* ---------- screener ---------- */
 let universe = "nifty200", lastRun = null, actFilter = "ALL";
 segment($("#uniSeg"), "uni", u => { universe = u; });
-const ORDER = { BUY: 0, SELL: 1, TRIM: 2, HOLD: 3, WATCH: 4 };
+const ORDER = { BUY: 0, "BUY AFTER": 1, SELL: 2, TRIM: 3, HOLD: 4, WAIT: 5, WATCH: 6, AVOID: 7 };
 function evidenceLine(v) {
   if (!v || v.status === "NOT_RUN" || v.status === "STALE") return `<span class="muted">No current backtest for this market (${esc(v?.note || "")})</span>`;
   const ok = v.status === "PASSED";
@@ -533,10 +533,10 @@ function renderRun(r) {
         <p style="margin:0"><b>Paper book:</b> ${r.risk.nav != null ? Number(r.risk.nav).toLocaleString() : "unknown"} · ${r.risk.halted ? "<span class='bad'>HALTED</span>" : r.risk.buys_paused ? "<span class='bad'>buys paused</span>" : "normal"}</p></div>
     </div>
     <div class="card"><h2>Recommendations</h2>
-      <div class="filters">${["ALL", "BUY", "WATCH", "HOLD", "TRIM", "SELL"].map(k => `<button data-f="${k}" aria-pressed="${actFilter === k}">${k === "ALL" ? "All" : k[0] + k.slice(1).toLowerCase()} ${k === "ALL" ? acts.length : counts[k] || 0}</button>`).join("")}</div>
-      <div class="scroll"><table><thead><tr><th>Stock</th><th>Action</th><th>Target</th><th>Why</th></tr></thead><tbody>
-      ${shown.map(([t, a]) => `<tr class="click" data-t="${esc(t)}"><td><b>${esc(t.replace(/\.NS$/, ""))}</b></td><td><span class="tag ${a.action}">${a.action}</span>${a.action !== a.quant_action ? `<div class="small muted">system said ${a.quant_action}</div>` : ""}</td>
-        <td class="num">${pct(a.target_weight)}</td><td class="small">${esc(a.reason)}${(a.review_reasons || []).length ? `<div class="muted">${esc(a.review_reasons.join("; "))}</div>` : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Nothing in this group.</td></tr>`}
+      <div class="filters">${["ALL", "BUY", "BUY AFTER", "WAIT", "HOLD", "SELL", "AVOID"].map(k => `<button data-f="${k}" aria-pressed="${actFilter === k}">${k === "ALL" ? "All" : k[0] + k.slice(1).toLowerCase()} ${k === "ALL" ? acts.length : counts[k] || 0}</button>`).join("")}</div>
+      <div class="scroll"><table><thead><tr><th>Stock</th><th>Recommendation</th><th>Size</th><th>Why</th></tr></thead><tbody>
+      ${shown.map(([t, a]) => `<tr class="click" data-t="${esc(t)}"><td><b>${esc(t.replace(/\.NS$/, ""))}</b></td><td><span class="tag ${a.action.split(" ")[0]}">${a.action}</span>${a.start_date ? `<div class="small muted">from ${esc(a.start_date)}</div>` : ""}${a.conviction ? `<div class="small muted">${a.conviction} conviction</div>` : ""}</td>
+        <td class="num">${a.position_size ? pct(a.position_size) : "–"}</td><td class="small">${esc(a.reason)}${(a.review_reasons || []).length ? `<div class="muted">${esc(a.review_reasons.join("; "))}</div>` : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Nothing in this group.</td></tr>`}
       </tbody></table></div></div>
     <div class="card"><h2>Top ranked</h2><div class="scroll"><table><thead><tr><th>#</th><th>Stock</th><th>Sector</th><th>Score</th><th>Value</th><th>Quality</th><th>Momentum</th><th>Low vol</th><th>Yield</th></tr></thead><tbody>
       ${r.top_ranked.map(x => `<tr class="click" data-t="${esc(x.ticker)}"><td class="num">${x.rank}</td><td><b>${esc(x.ticker.replace(/\.NS$/, ""))}</b><div class="small muted">${esc(x.name || "")}</div></td><td class="small">${esc(x.sector || "")}</td>
