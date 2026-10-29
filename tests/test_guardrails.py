@@ -201,6 +201,8 @@ def test_hidden_signals():
     assert signals.price_tells("S0", m)["status"] == "NEUTRAL"
     m.loc["S1", ["volume_spike_5d", "ret_5d"]] = [4.0, -0.08]
     assert signals.price_tells("S1", m)["status"] == "WAIT"                 # unexplained volume shock
+    m["ret_5d"] = -0.08                                                      # the whole sector fell with it
+    assert signals.price_tells("S1", m)["status"] == "NEUTRAL"              # market move, not hidden news
     scored = pd.DataFrame({"rank": [1.0], "vol_1y": [0.2], "sector": ["A"], "score": [1.0]}, index=["X.NS"])
     base = {"ticker": "X.NS", "as_of": "2026-10-27", "rank": 1, "ranked_peers": 1,
             "themes": {"value": 1.0, "quality": 1.0, "momentum": 1.0, "low_vol": 1.0, "yield": 1.0},
@@ -270,6 +272,8 @@ def test_results_date_and_shadow_signals():
     fresh = base | {"your_book": base["your_book"] | {"watchlist_since": "2026-10-27"}}   # cooling-off ends 6 Nov
     r2 = recommend.build(fresh, {}, scored, v, {}, signals={"upcoming_results": {"status": "WAIT", "detail": "", "date": "2026-10-29"}})
     assert r2["start_date"] == "2026-11-06"                                     # results never shorten cooling-off
+    abb = recommend.build(fresh, {}, scored, v, {}, signals={"upcoming_results": {"status": "NEUTRAL", "detail": "", "date": "2026-11-13"}})
+    assert abb["start_date"] == "2026-11-16"                                    # no first buy a week before results
     far = recommend.build(base, {}, scored, v, {}, signals={"upcoming_results": {"status": "NEUTRAL", "detail": "", "date": "2027-01-20"}})
     assert far["action"] == "BUY"                                               # distant results don't delay
     shadow = recommend.build(base, {}, scored, v, {}, signals={"revision_breadth": {"status": "WARN", "detail": "x"}})

@@ -165,11 +165,15 @@ def price_tells(ticker: str, metrics: pd.DataFrame, as_of: date | None = None) -
     """Bad news often shows in price before it shows in print."""
     m = metrics.loc[ticker]
     spike, r5 = m.get("volume_spike_5d"), m.get("ret_5d")
-    if spike is not None and r5 is not None and spike >= VOLUME_SPIKE and r5 < -0.05:
+    # Stock-specific means beyond its sector: a heavy-volume fall WITH the market is not hidden news.
+    peers5 = metrics[(metrics["sector"] == m.get("sector")) & metrics["ret_5d"].notna()]["ret_5d"]
+    sector5 = peers5.median() if len(peers5) >= 5 else 0.0
+    if spike is not None and r5 is not None and spike >= VOLUME_SPIKE and r5 - sector5 < -0.05:
         res = _recent_results(ticker, as_of or date.today())
         why = (f"after results on {res:%d %b}: the market is still digesting the numbers" if res
                else "with no results in the last two weeks: possible unreported news")
-        return {"status": "WAIT", "detail": f"volume {spike:.1f}× normal while the price fell {abs(r5):.0%} this week, {why}"}
+        return {"status": "WAIT", "detail": f"volume {spike:.1f}× normal while the price fell {abs(r5):.0%} this week "
+                                            f"(sector {sector5:+.0%}), {why}"}
     peers = metrics[(metrics["sector"] == m.get("sector")) & metrics["ret_1m"].notna()]["ret_1m"]
     if len(peers) >= 5 and m.get("ret_1m") is not None:
         gap = (m["ret_1m"] - peers.median()) / (peers.std() or np.nan)
@@ -238,6 +242,7 @@ def revisions(ticker: str) -> dict:
 # ---------------- 5. results calendar ----------------
 
 RESULTS_WINDOW_DAYS, AFTER_RESULTS_DAYS = 5, 3
+BUY_CLEAR_OF_RESULTS_DAYS = 14  # a first buy never lands within two weeks before known results
 
 
 def _last_quarter_end(d: date) -> date:
@@ -301,7 +306,7 @@ def forward_earnings(ticker: str, metrics: pd.DataFrame) -> dict:
     if chg is None or chg != chg:
         return {"status": "NEUTRAL", "detail": "no forward estimate in the data source"}
     used = bool(metrics.loc[ticker].get("valued_on_forward"))
-    detail = (f"consensus forward EPS {chg:+.0%} vs trailing" +
+    detail = (f"consensus next-fiscal-year EPS {chg:+.0%} vs trailing 12 months" +
               ("; valuation already uses the lower forward figure" if used else "") +
               " (this signal's conviction effect is tracking only)")
     return {"status": "WARN" if chg <= FORWARD_DROP else "NEUTRAL", "detail": detail}

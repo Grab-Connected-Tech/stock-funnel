@@ -46,7 +46,7 @@ GATE_NAMES = {
     "leverage": "too much debt", "interest_coverage": "profits barely cover interest",
     "financial_roa": "weak return on assets", "financial_roe": "weak return on equity",
 }
-THEME_NAMES = {"value": "valuation", "quality": "business quality", "momentum": "price trend",
+THEME_NAMES = {"value": "valuation", "quality": "business quality", "momentum": "12-month price trend (excluding the last month)",
                "low_vol": "price stability", "yield": "cash returned to shareholders"}
 
 
@@ -89,7 +89,7 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     failed_checks = [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in checks.items() if v["status"] == "FAIL"]
     warn_checks = [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in checks.items() if v["status"] == "WARN"]
     unverified = [k.replace("_", " ") for k, v in checks.items() if v["status"] == "UNKNOWN" and k in CRITICAL]
-    from .signals import AFTER_RESULTS_DAYS, RESULTS_WINDOW_DAYS, SHADOW
+    from .signals import AFTER_RESULTS_DAYS, BUY_CLEAR_OF_RESULTS_DAYS, SHADOW
     all_signals = signals or {}
     results = all_signals.get("upcoming_results", {}).get("date")
     results_block = all_signals.get("upcoming_results", {}) if all_signals.get("upcoming_results", {}).get("status") == "WAIT" \
@@ -168,7 +168,7 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
         start = since + timedelta(days=PORTFOLIO["cooling_off_days"])
         res = date.fromisoformat(results) if results else None
         buy_day = max(start, today)
-        if not held and res and today <= res <= buy_day + timedelta(days=RESULTS_WINDOW_DAYS):
+        if not held and res and today <= res <= buy_day + timedelta(days=BUY_CLEAR_OF_RESULTS_DAYS):
             start = max(start, res + timedelta(days=AFTER_RESULTS_DAYS))  # only ever delays: never shortens cooling-off
             why.insert(0, f"Results are due {res:%d %b}: the buy waits until they're out and re-checked")
         action = "HOLD" if held else ("BUY" if start <= today else "BUY AFTER")

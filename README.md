@@ -155,7 +155,7 @@ No weight or threshold was re-fitted to the backtest. That would raise backtest 
 - **Fresher fundamentals.** Valuation and profitability use trailing 12 months when 4 consecutive quarters exist. The forensic gates stay on audited annual statements.
 - **Right benchmark.** Validation now compares against investable factor ETFs, not just equal-weight.
 - **One verdict.** `analyze_stock`, `run_funnel` and `plan_investment` all compute a stock's recommendation in one place (`funnel.stock_report`), so they can't disagree. The paper book's own decision is shown separately as `paper_action`.
-- **Results timing.** A buy waits when results came out after the data snapshot, are due within days, or a quarter is unreported inside the legal deadline with no date published.
+- **Results timing.** A buy waits when results came out after the data snapshot, are due within days (a first buy is pushed past results due in the next two weeks), or a quarter is unreported inside the legal deadline with no date published.
 - **Data honesty.** Missing analyst-revision counts read "unavailable" (with source coverage), never "0 up, 0 down".
 - **Conservative earnings.** For non-REITs, when consensus expects profit to fall, value and quality are judged on the lower forward figure. There's no threshold, and it only works one way: forecasts can lower a valuation, never raise it. REITs are excluded because their GAAP EPS swings with depreciation; they're judged on FFO.
 - **Normalized earnings.** When current profit is more than 1.5× its multi-year median (cyclical peaks such as refiners, or one-off gains), value and quality are judged on the average, and the stock is flagged "possible peak-cycle earnings" (Graham).
