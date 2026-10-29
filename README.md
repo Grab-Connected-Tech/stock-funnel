@@ -48,6 +48,7 @@ Reports are written to `reports/`, paper books to `state/`, reviews to `reviews/
 uv run stockfunnel-ui        # then open http://127.0.0.1:8765
 ```
 Four tabs:
+- **Plan:** amount, market, months and risk appetite in; the split between stocks, the index ETF and cash, the shares to buy, and what history says about that holding period out.
 - **Analyze:** any stock's verdict, tier meter, factor scores, a plain-English summary, safety gates, and a manual-check list saved per stock.
 - **Screener:** runs the funnel on an index.
 - **Portfolio:** the paper book and the cooling-off watchlist.
@@ -96,7 +97,7 @@ Claude Desktop is configured in `~/Library/Application Support/Claude/claude_des
 - **`plan_investment(amount, market, months, target_monthly_return)`** turns an amount into share counts with buy-from dates. It recommends the index ETF when the amount is too small to diversify, holds back cash in risk-off markets, and answers return hopes with historical odds, never a forecast.
   - Optional `risk` (`conservative` / `moderate` / `growth`) sets how much goes into stocks for the holding period: at most the share that would have lost 10% / 20% of the whole amount if the index's worst period of that length since ~2006 repeated (growth: no cap). For example, with 12 months in the US, conservative is about 22% in stocks, moderate about 45%. Risk appetite never changes **which** stocks are picked: a looser funnel would just admit stocks the evidence ranks worse. Leaving it out gives the same plan as before.
 - **Prompts:** `judge_stock(ticker)`, `screen_market(universe)` and `benchmark_framework(universe, compare_tickers)` walk a model through the protocol step by step.
-- **Without MCP:** the web server publishes an OpenAPI spec at `http://127.0.0.1:8765/openapi.json`, with the protocol in its description. The endpoints are `/api/analyze`, `/api/regime`, `/api/run`, `/api/validation`, `/api/status`, `/api/track_record` and `/api/protocol`.
+- **Without MCP:** the web server publishes an OpenAPI spec at `http://127.0.0.1:8765/openapi.json`, with the protocol in its description. The endpoints are `/api/analyze`, `/api/regime`, `/api/run`, `/api/plan`, `/api/validation`, `/api/status`, `/api/track_record` and `/api/protocol`.
 
 There are deliberately no tools to edit policy, override gates, reset a halt, clear vetoes, or place arbitrary orders.
 

@@ -42,6 +42,16 @@ def _track_record(_q):
     return scorecard.grade()
 
 
+def _plan(q):
+    from .plan import RISK_MAX_LOSS, plan_investment
+    amount, months = float(q["amount"]), int(q.get("months") or 12)
+    risk = q.get("risk") or None
+    if amount <= 0 or not 1 <= months <= 600 or q.get("market", "IN") not in ("IN", "US") or (risk and risk not in RISK_MAX_LOSS):
+        raise ValueError("amount > 0, months 1-600, market IN/US, risk conservative/moderate/growth")
+    target = float(q["target"]) if q.get("target") else None
+    return plan_investment(amount, q.get("market", "IN"), months, target, risk=risk)
+
+
 def _param(name, desc, required=True, enum=None):
     schema = {"type": "string", **({"enum": enum} if enum else {})}
     return {"name": name, "in": "query", "required": required, "description": desc, "schema": schema}
@@ -64,6 +74,11 @@ def openapi(port: int) -> dict:
             "/api/run": get("runFunnel", "Screen an index (recommendations only)", [_param("universe", "", True, sorted(data.UNIVERSES))]),
             "/api/validation": get("evidence", "Backtest verdict for a market", [_param("market", "", True, ["US", "IN"])]),
             "/api/status": get("portfolioStatus", "Paper portfolio", [_param("market", "", True, ["US", "IN"])]),
+            "/api/plan": get("planInvestment", "Turn an amount into a plan (or the index fund); odds are history, not forecasts",
+                             [_param("amount", "money to invest (INR or USD)"), _param("market", "", False, ["US", "IN"]),
+                              _param("months", "holding period in months", False),
+                              _param("risk", "caps the stock share", False, ["conservative", "moderate", "growth"]),
+                              _param("target", "hoped-for monthly return as a decimal, e.g. 0.01", False)]),
             "/api/track_record": get("trackRecord", "How past recommendations performed vs the market"),
             "/api/protocol": get("protocol", "Judgement protocol and field guide for LLMs"),
         },
@@ -77,6 +92,7 @@ ROUTES = {
     "/api/status": lambda q: _status(q["market"]),
     "/api/run": lambda q: _run(q["universe"]),
     "/api/track_record": _track_record,
+    "/api/plan": _plan,
     "/api/protocol": lambda q: {"protocol": protocol.PROTOCOL, "field_guide": protocol.FIELD_GUIDE},
 }
 PORT = int(os.environ.get("STOCKFUNNEL_PORT", "8765"))

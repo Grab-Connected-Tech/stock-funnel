@@ -27,7 +27,7 @@ def stock_share(market: str, months: int, risk: str | None) -> tuple[float, dict
     cap, bench = RISK_MAX_LOSS[risk], data.MARKETS[market]["benchmark"]
     worst = horizon_odds(bench, INDEX_NAME[bench], months, None)["worst"]
     share = 1.0 if cap is None or worst >= 0 else min(1.0, cap / -worst)
-    return share, {"profile": risk, "max_loss_accepted": cap, "horizon_months": months,
+    return share, {"profile": risk, "max_loss_accepted": cap, "horizon_months": months, "index": INDEX_NAME[bench],
                    "index_worst_return_over_horizon": worst, "stock_share_before_regime": round(share, 3)}
 
 
