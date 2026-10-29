@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>stockfunnel</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f3f2ee; --ring: rgba(11,11,11,0.10);
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781; --grid: #e1e0d9; --axis: #c3c2b7;
+  --accent: #2a78d6; --accent-ink: #fff;
+  --pos: #2a78d6; --neg: #e34948; --mid: #f0efec;
+  --good: #0ca30c; --warn: #fab219; --serious: #ec835a; --crit: #d03b3b; --good-text: #006300;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.05);
+  --r: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321; --ring: rgba(255,255,255,0.10);
+    --ink: #f0efec; --ink-2: #c3c2b7; --grid: #2c2c2a; --axis: #383835;
+    --accent: #3987e5; --pos: #3987e5; --neg: #e66767; --mid: #383835; --good-text: #0ca30c;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321; --ring: rgba(255,255,255,0.10);
+  --ink: #f0efec; --ink-2: #c3c2b7; --grid: #2c2c2a; --axis: #383835;
+  --accent: #3987e5; --pos: #3987e5; --neg: #e66767; --mid: #383835; --good-text: #0ca30c;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.3);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+button, input, select { font: inherit; color: inherit; }
+a { color: var(--accent); }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px 64px; }
+
+/* header */
+header { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--page) 85%, transparent);
+  backdrop-filter: blur(10px); border-bottom: 1px solid var(--ring); }
+.bar { max-width: 1120px; margin: 0 auto; padding: 12px 20px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -.01em; font-size: 17px; }
+.logo { width: 28px; height: 28px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; }
+.logo svg { width: 16px; height: 16px; }
+nav { display: flex; gap: 4px; background: var(--surface-2); padding: 4px; border-radius: 11px; }
+nav button { border: 0; background: none; padding: 6px 14px; border-radius: 8px; cursor: pointer; color: var(--ink-2); font-weight: 500; }
+nav button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.spacer { flex: 1; }
+.chips { display: flex; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--surface);
+  border: 1px solid var(--ring); font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.iconbtn { border: 1px solid var(--ring); background: var(--surface); border-radius: 9px; width: 34px; height: 34px; cursor: pointer; display: grid; place-items: center; }
+
+/* cards & layout */
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: var(--r); box-shadow: var(--shadow); padding: 20px; }
+.grid { display: grid; gap: 16px; }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.g4 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+h1 { font-size: 28px; letter-spacing: -.02em; margin: 32px 0 4px; }
+h2 { font-size: 15px; margin: 0 0 14px; font-weight: 650; }
+.sub { color: var(--ink-2); margin: 0 0 20px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.num { font-variant-numeric: tabular-nums; }
+section[hidden] { display: none; }
+
+/* search */
+.search { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; }
+.field { flex: 1; min-width: 220px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--ring);
+  border-radius: 12px; padding: 0 14px; box-shadow: var(--shadow); }
+.field:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.field input { border: 0; outline: 0; background: none; padding: 13px 0; flex: 1; font-size: 16px; text-transform: uppercase; }
+.field input::placeholder { text-transform: none; color: var(--muted); }
+.seg { display: flex; background: var(--surface-2); padding: 4px; border-radius: 12px; }
+.seg button { border: 0; background: none; padding: 0 14px; border-radius: 9px; cursor: pointer; color: var(--ink-2); font-weight: 500; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.btn { border: 0; background: var(--accent); color: var(--accent-ink); padding: 0 20px; border-radius: 12px; font-weight: 600; cursor: pointer; min-height: 46px; }
+.btn:disabled { opacity: .6; cursor: progress; }
+.btn.ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--ring); }
+.recent { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 0; }
+.recent button { border: 1px solid var(--ring); background: var(--surface); border-radius: 999px; padding: 3px 12px; cursor: pointer; font-size: 13px; color: var(--ink-2); }
+
+/* verdict */
+.verdict { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: center; position: relative; overflow: hidden; }
+.verdict::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 5px; background: var(--vc, var(--muted)); }
+.badge { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; letter-spacing: .04em; text-transform: uppercase;
+  padding: 5px 12px; border-radius: 999px; background: color-mix(in srgb, var(--vc) 14%, transparent); color: var(--ink); }
+.badge i { font-style: normal; width: 18px; height: 18px; border-radius: 50%; background: var(--vc); color: #fff; display: grid; place-items: center; font-size: 12px; }
+.vname { font-size: 26px; font-weight: 700; letter-spacing: -.02em; margin: 10px 0 2px; }
+.vdetail { color: var(--ink-2); max-width: 640px; }
+.rank { text-align: right; }
+.rank b { font-size: 44px; letter-spacing: -.03em; line-height: 1; }
+.meter { position: relative; height: 10px; border-radius: 6px; background: var(--surface-2); margin: 14px 0 6px; }
+.meter .zone:first-child { border-radius: 6px 0 0 6px; }
+.meter .zone { position: absolute; top: 0; bottom: 0; }
+.meter .pin { position: absolute; top: -3px; width: 4px; height: 16px; border-radius: 2px; background: var(--ink); box-shadow: 0 0 0 2px var(--surface); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+
+/* diverging bars */
+.theme { display: grid; grid-template-columns: 110px 1fr 56px; align-items: center; gap: 12px; padding: 7px 0; cursor: default; }
+.track { position: relative; height: 18px; }
+.track::before { content: ""; position: absolute; left: 50%; top: -4px; bottom: -4px; width: 1px; background: var(--axis); }
+.track .fill { position: absolute; top: 3px; height: 12px; }
+.track .fill.p { left: 50%; background: var(--pos); border-radius: 0 4px 4px 0; }
+.track .fill.n { right: 50%; background: var(--neg); border-radius: 4px 0 0 4px; }
+.scale { display: grid; grid-template-columns: 110px 1fr 56px; gap: 12px; font-size: 11px; color: var(--muted); }
+.scale div { display: flex; justify-content: space-between; }
+
+/* plain english */
+.plain li { margin: 0 0 10px; padding-left: 4px; }
+.plain li::marker { color: var(--muted); }
+.ok { color: var(--good-text); font-weight: 600; }
+.bad { color: var(--crit); font-weight: 600; }
+
+/* gates */
+.gates { display: flex; flex-wrap: wrap; gap: 8px; }
+.gate { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 9px; background: var(--surface-2); font-size: 13px; }
+.gate i { font-style: normal; font-weight: 800; }
+.gate.PASS i { color: var(--good); } .gate.FAIL { background: color-mix(in srgb, var(--crit) 14%, transparent); } .gate.FAIL i { color: var(--crit); }
+.gate.UNKNOWN { background: color-mix(in srgb, var(--warn) 18%, transparent); } .gate.UNKNOWN i { color: var(--ink-2); }
+
+/* metrics */
+.metric { padding: 14px; border-radius: 12px; background: var(--surface-2); }
+.metric .k { font-size: 12px; color: var(--ink-2); display: flex; justify-content: space-between; gap: 6px; }
+.metric .v { font-size: 22px; font-weight: 650; letter-spacing: -.01em; margin: 2px 0; }
+.metric .h { font-size: 12px; color: var(--muted); line-height: 1.35; }
+
+/* checklist */
+.check { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--grid); cursor: pointer; }
+.check:last-child { border: 0; }
+.check input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--accent); }
+
+/* tables */
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; font-weight: 600; color: var(--ink-2); font-size: 12px; padding: 8px 10px; border-bottom: 1px solid var(--axis); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+tr.click { cursor: pointer; } tr.click:hover td { background: var(--surface-2); }
+.tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: var(--surface-2); }
+.tag.BUY { background: color-mix(in srgb, var(--good) 18%, transparent); } .tag.SELL, .tag.TRIM { background: color-mix(in srgb, var(--crit) 16%, transparent); }
+.tag.WATCH { background: color-mix(in srgb, var(--warn) 20%, transparent); }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.filters button { border: 1px solid var(--ring); background: var(--surface); border-radius: 999px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
+.filters button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.scroll { overflow-x: auto; }
+
+/* funnel */
+.stage { display: grid; grid-template-columns: 150px 1fr 60px; gap: 12px; align-items: center; margin: 8px 0; }
+.stage .b { height: 26px; border-radius: 0 4px 4px 0; background: var(--c); }
+
+/* stat tiles */
+.stat .v { font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
+.stat .k { font-size: 12px; color: var(--ink-2); text-transform: uppercase; letter-spacing: .05em; }
+.progress { height: 6px; border-radius: 4px; background: var(--surface-2); overflow: hidden; margin-top: 4px; }
+.progress div { height: 100%; background: var(--accent); }
+
+/* states */
+.empty { text-align: center; padding: 56px 20px; color: var(--ink-2); }
+.empty svg { width: 44px; height: 44px; color: var(--muted); margin-bottom: 10px; }
+.loading { display: flex; align-items: center; gap: 12px; color: var(--ink-2); padding: 28px; justify-content: center; }
+.spin { width: 20px; height: 20px; border: 2.5px solid var(--grid); border-top-color: var(--accent); border-radius: 50%; animation: s .8s linear infinite; }
+@keyframes s { to { transform: rotate(360deg); } }
+.error { border-color: color-mix(in srgb, var(--crit) 40%, transparent); background: color-mix(in srgb, var(--crit) 6%, var(--surface)); }
+.note { font-size: 12px; color: var(--muted); margin-top: 28px; text-align: center; }
+.tip { position: fixed; pointer-events: none; z-index: 50; background: var(--ink); color: var(--surface); padding: 8px 10px; border-radius: 8px;
+  font-size: 12px; max-width: 260px; box-shadow: var(--shadow); opacity: 0; transition: opacity .1s; }
+@media (max-width: 640px) { .verdict { grid-template-columns: 1fr; } .rank { text-align: left; } .theme, .scale { grid-template-columns: 84px 1fr 44px; } .stage { grid-template-columns: 100px 1fr 44px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand">
+      <div class="logo"><svg viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M2 3h12M4 8h8M6.5 13h3"/></svg></div>
+      stockfunnel
+    </div>
+    <nav role="tablist">
+      <button role="tab" data-tab="analyze" aria-selected="true">Analyze</button>
+      <button role="tab" data-tab="screen" aria-selected="false">Screener</button>
+      <button role="tab" data-tab="book" aria-selected="false">Portfolio</button>
+      <button role="tab" data-tab="evidence" aria-selected="false">Evidence</button>
+    </nav>
+    <div class="spacer"></div>
+    <div class="chips" id="regimes"></div>
+    <button class="iconbtn" id="theme" title="Toggle dark mode" aria-label="Toggle dark mode">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- ANALYZE -->
+  <section id="analyze">
+    <h1>Analyze a stock</h1>
+    <p class="sub">Every stock goes through the same funnel: hard safety gates, then ranking against its peers.</p>
+    <form class="search" id="searchForm">
+      <label class="field">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--muted)"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="ticker" placeholder="Ticker, e.g. TCS, COALINDIA, AAPL" autocomplete="off" spellcheck="false" required>
+      </label>
+      <div class="seg" role="group" aria-label="Market">
+        <button type="button" data-mkt="IN" aria-pressed="true">India</button>
+        <button type="button" data-mkt="US" aria-pressed="false">US</button>
+      </div>
+      <button class="btn" id="go">Analyze</button>
+    </form>
+    <div class="recent" id="recent"></div>
+    <div id="result" style="margin-top:24px"></div>
+  </section>
+
+  <!-- SCREENER -->
+  <section id="screen" hidden>
+    <h1>Screener</h1>
+    <p class="sub">Run the full funnel on an index. Recommendations only: nothing is ever traded from here.</p>
+    <div class="search">
+      <div class="seg" role="group" aria-label="Universe" id="uniSeg">
+        <button type="button" data-uni="nifty200" aria-pressed="true">Nifty 200</button>
+        <button type="button" data-uni="nifty50" aria-pressed="false">Nifty 50</button>
+        <button type="button" data-uni="nifty500" aria-pressed="false">Nifty 500</button>
+        <button type="button" data-uni="sp500" aria-pressed="false">S&amp;P 500</button>
+      </div>
+      <button class="btn" id="runBtn">Run funnel</button>
+    </div>
+    <div id="runOut" style="margin-top:24px"></div>
+  </section>
+
+  <!-- PORTFOLIO -->
+  <section id="book" hidden>
+    <h1>Paper portfolio</h1>
+    <p class="sub">The simulated book autopilot trades. Safety switches and human-only commands live in the CLI.</p>
+    <div class="seg" role="group" aria-label="Market" id="bookSeg" style="display:inline-flex;min-height:40px">
+      <button type="button" data-mkt="IN" aria-pressed="true">India</button>
+      <button type="button" data-mkt="US" aria-pressed="false">US</button>
+    </div>
+    <div id="bookOut" style="margin-top:20px"></div>
+  </section>
+
+  <!-- EVIDENCE -->
+  <section id="evidence" hidden>
+    <h1>Does it actually work?</h1>
+    <p class="sub">The 20-year backtest of the price-based strategy, net of costs, against simply buying every stock in the index equally.</p>
+    <div class="grid g2" id="evOut"></div>
+  </section>
+
+  <p class="note">Not investment advice. A systematic screen on free, non-point-in-time data. See the README for limitations.</p>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const store = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+                set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+
+async function api(path, params) {
+  const r = await fetch(path + "?" + new URLSearchParams(params));
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+const loading = msg => `<div class="card loading"><div class="spin"></div>${esc(msg)}</div>`;
+const errorCard = e => `<div class="card error"><b>Something went wrong.</b><div class="small" style="margin-top:6px">${esc(e.message || e)}</div></div>`;
+
+/* ---------- theme ---------- */
+const root = document.documentElement;
+const savedTheme = store.get("theme", null); if (savedTheme) root.dataset.theme = savedTheme;
+$("#theme").onclick = () => {
+  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark"; store.set("theme", root.dataset.theme);
+};
+
+/* ---------- tabs ---------- */
+function show(tab) {
+  $$("nav button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
+  $$("section").forEach(s => s.hidden = s.id !== tab);
+  store.set("tab", tab);
+  if (tab === "book") loadBook();
+  if (tab === "evidence") loadEvidence();
+}
+$$("nav button").forEach(b => b.onclick = () => show(b.dataset.tab));
+function segment(el, attr, onPick) {
+  $$("button", el).forEach(b => b.onclick = () => { $$("button", el).forEach(x => x.setAttribute("aria-pressed", x === b)); onPick(b.dataset[attr]); });
+}
+
+/* ---------- tooltip ---------- */
+const tip = $("#tip");
+document.addEventListener("mousemove", e => {
+  const t = e.target.closest("[data-tip]");
+  if (!t) { tip.style.opacity = 0; return; }
+  tip.textContent = t.dataset.tip; tip.style.opacity = 1;
+  const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8);
+  tip.style.left = x + "px"; tip.style.top = (e.clientY + 16) + "px";
+});
+
+/* ---------- regime chips ---------- */
+const REGIME = { risk_on: ["var(--good)", "Risk-on"], risk_off: ["var(--warn)", "Risk-off"], panic: ["var(--crit)", "Panic"] };
+async function loadRegimes() {
+  const out = [];
+  for (const m of ["IN", "US"]) {
+    try {
+      const r = await api("/api/regime", { market: m });
+      const [c, label] = REGIME[r.label] || ["var(--muted)", r.label];
+      out.push(`<span class="chip" data-tip="${m === "IN" ? "India" : "US"} market: ${label}. Max ${Math.round(r.max_equity_exposure * 100)}% in stocks. Index ${(r.index_drawdown_from_1y_high * 100).toFixed(1)}% from its 1-year high."><span class="dot" style="background:${c}"></span>${m} · ${label}</span>`);
+    } catch { out.push(`<span class="chip">${m} · n/a</span>`); }
+  }
+  $("#regimes").innerHTML = out.join("");
+}
+
+/* ---------- formatting ---------- */
+const pct = (v, d = 1) => v == null ? "–" : (v * 100).toFixed(d) + "%";
+const fx = (v, d = 2) => v == null ? "–" : Number(v).toFixed(d);
+function money(v, ccy) {
+  if (v == null) return "–";
+  if (ccy === "INR") return v >= 1e12 ? "₹" + (v / 1e12).toFixed(2) + " L Cr" : "₹" + Math.round(v / 1e7).toLocaleString("en-IN") + " Cr";
+  return v >= 1e12 ? "$" + (v / 1e12).toFixed(2) + "T" : "$" + (v / 1e9).toFixed(1) + "B";
+}
+const isIN = t => /\.(NS|BO)$/.test(t);
+
+/* ---------- analyze ---------- */
+let market = "IN";
+segment($("#searchForm .seg"), "mkt", m => { market = m; });
+const VERDICT = {
+  "BUY CANDIDATE": ["var(--good)", "✓"], "HOLD ZONE": ["var(--warn)", "◐"],
+  "PASS (not a buy)": ["var(--muted)", "–"], "REJECT": ["var(--crit)", "✕"], "NO DATA": ["var(--muted)", "?"],
+};
+const THEME_HELP = {
+  value: "How cheap the stock is vs. its sector peers (earnings, cash flow and sales relative to price).",
+  quality: "How profitable, stable and low-debt the business is vs. peers.",
+  momentum: "Price trend over the past 6–12 months, excluding the latest month, adjusted for volatility.",
+  low_vol: "How calm the share price is. Calmer stocks have historically been better risk-adjusted bets.",
+  yield: "Cash returned to shareholders (dividends + buybacks − new shares issued).",
+};
+const GATE_HELP = {
+  history_1y: "At least 1 year of trading history", min_price: "Not a penny stock", liquidity: "Enough daily trading to get in and out",
+  data_quality: "No suspicious price glitches in the last year", no_stale_trading: "Trades every day", min_market_cap: "Large enough company",
+  not_lottery_stock: "Not among the 10% most volatile stocks", positive_equity: "Assets exceed liabilities", dilution: "Not issuing lots of new shares",
+  piotroski: "Piotroski F-score: business fundamentals improving", accruals: "Profits backed by cash, not accounting estimates",
+  cash_generation: "Operations generate cash", altman_z2: "Altman Z'': low bankruptcy risk", beneish_m: "Beneish M-score: no earnings-manipulation pattern",
+  montier_c: "Montier C-score: no 'cooking the books' signals", leverage: "Debt not excessive", interest_coverage: "Profits comfortably cover interest",
+  financial_roa: "Bank/lender earns enough on its assets", financial_roe: "Insurer earns enough on equity",
+};
+
+function plainEnglish(r) {
+  const m = r.metrics, out = [];
+  const add = (good, text) => out.push(`<li><span class="${good ? "ok" : "bad"}">${good ? "Good" : "Watch"}:</span> ${text}</li>`);
+  if (m.roe != null) add(m.roe >= 0.15, `earns <b>${pct(m.roe, 0)}</b> a year on shareholders' money${m.roe >= 0.15 ? " (strong)" : " (modest)"}.`);
+  const cur = isIN(r.ticker) ? "₹" : "$";
+  if (m.debt_to_equity != null) add(m.debt_to_equity <= 0.5, `borrows <b>${cur}${Math.round(m.debt_to_equity * 100)}</b> for every ${cur}100 of its own money.`);
+  if (m.pe != null) add(m.pe <= 25, `costs <b>${fx(m.pe, 1)}×</b> its yearly profit (P/E)${m.pe <= 15 ? ": cheap" : m.pe <= 25 ? ": fair" : ": expensive"}.`);
+  if (m.fcf_yield != null) add(m.fcf_yield > 0.02, m.fcf_yield > 0 ? `generates free cash worth <b>${pct(m.fcf_yield)}</b> of its value each year.` : `is <b>burning cash</b> after investments (free cash flow negative).`);
+  if (m.altman_z2 != null) add(m.altman_z2 >= 2.6, `bankruptcy-risk score <b>${fx(m.altman_z2, 1)}</b> (${m.altman_z2 >= 2.6 ? "safe zone" : m.altman_z2 >= 1.1 ? "grey zone" : "distress zone"}).`);
+  if (m.beneish_m != null) add(m.beneish_m <= -1.78, `earnings-manipulation score <b>${fx(m.beneish_m)}</b> (${m.beneish_m <= -1.78 ? "below the −1.78 alarm line" : "above the −1.78 alarm line"}).`);
+  if (m.mom_12_1 != null) add(m.mom_12_1 > 0, `share price ${m.mom_12_1 >= 0 ? "up" : "down"} <b>${pct(Math.abs(m.mom_12_1), 0)}</b> over the past year (excluding the last month).`);
+  if (m.max_dd_1y != null) add(m.max_dd_1y > -0.3, `fell as much as <b>${pct(Math.abs(m.max_dd_1y), 0)}</b> from its peak in the past year.`);
+  return out.join("");
+}
+
+const METRICS = [
+  ["market_cap", "Market cap", v => null, "Company size"],
+  ["pe", "P/E", v => fx(v, 1) + "×", "Price ÷ yearly profit. Lower = cheaper"],
+  ["roe", "ROE", v => pct(v), "Profit on shareholders' money"],
+  ["roic", "ROIC", v => pct(v), "Profit on all money invested"],
+  ["debt_to_equity", "Debt / equity", v => fx(v), "Borrowing vs own money"],
+  ["fcf_yield", "FCF yield", v => pct(v), "Free cash ÷ market value"],
+  ["earnings_yield", "Earnings yield", v => pct(v), "Operating profit ÷ enterprise value"],
+  ["piotroski", "Piotroski F", v => v + " / 9", "Improving fundamentals (≥4 to pass)"],
+  ["altman_z2", "Altman Z''", v => fx(v), "Bankruptcy risk (>2.6 safe, <1.1 distress)"],
+  ["beneish_m", "Beneish M", v => fx(v), "Manipulation risk (must be < −1.78)"],
+  ["montier_c", "Montier C", v => v + " / 6", "Accounting red flags (≤4 to pass)"],
+  ["mom_12_1", "12-month trend", v => pct(v), "Price change, excluding the last month"],
+  ["vol_1y", "Volatility", v => pct(v, 0), "Typical yearly price swing"],
+  ["max_dd_1y", "Worst fall (1y)", v => pct(v, 0), "Deepest drop from a peak"],
+];
+
+function themeBars(themes) {
+  const rows = Object.entries(themes).map(([k, z]) => {
+    const w = Math.min(Math.abs(z), 3) / 3 * 50;
+    const label = { low_vol: "Low volatility", yield: "Shareholder yield" }[k] || k[0].toUpperCase() + k.slice(1);
+    return `<div class="theme" data-tip="${esc(label)}: ${z >= 0 ? "+" : ""}${z.toFixed(2)} standard deviations vs. sector peers. ${esc(THEME_HELP[k] || "")}">
+      <div class="small">${label}</div>
+      <div class="track"><div class="fill ${z >= 0 ? "p" : "n"}" style="width:${w}%"></div></div>
+      <div class="num small" style="text-align:right">${z >= 0 ? "+" : ""}${z.toFixed(2)}</div></div>`;
+  }).join("");
+  return rows + `<div class="scale"><div></div><div><span>−3 worse than peers</span><span>0</span><span>better +3</span></div><div></div></div>`;
+}
+
+function renderStock(r) {
+  if (r.verdict === "NO DATA") return `<div class="card empty">No data for <b>${esc(r.ticker)}</b>. ${esc(r.detail)}</div>`;
+  const [vc, icon] = VERDICT[r.verdict] || ["var(--muted)", "?"];
+  const m = r.metrics, ccy = isIN(r.ticker) ? "INR" : "USD";
+  const checks = Object.entries(r.gates.checks);
+  const passing = checks.filter(([, v]) => v === "PASS").length;
+  const rankBlock = r.rank ? (() => {
+    const N = r.ranked_peers, pin = 0.5 + (r.rank - 1) / Math.max(N - 1, 1) * 99, top = 30 / N * 100, buf = (isIN(r.ticker) ? 60 : 75) / N * 100;
+    return `<div class="rank"><div class="small muted">Rank among peers</div><b class="num">#${r.rank}</b><div class="small muted">of ${N} that passed the gates</div></div>
+      <div style="grid-column:1/-1">
+        <div class="meter" data-tip="Position #${r.rank} of ${N}. Leftmost is best.">
+          <div class="zone" style="left:0;width:${top}%;background:color-mix(in srgb,var(--good) 35%,transparent)"></div>
+          <div class="zone" style="left:${top}%;width:${buf - top}%;background:color-mix(in srgb,var(--warn) 30%,transparent)"></div>
+          <div class="pin" style="left:calc(${pin}% - 2px)"></div></div>
+        <div class="legend"><span style="--c:color-mix(in srgb,var(--good) 35%,transparent)">Buy zone (top 30)</span><span style="--c:color-mix(in srgb,var(--warn) 30%,transparent)">Hold zone</span><span style="--c:var(--surface-2)">Not a buy</span></div>
+      </div>`; })() : "";
+  const checked = store.get("checks:" + r.ticker, {});
+  return `
+  <div class="grid">
+    <div class="card verdict" style="--vc:${vc}">
+      <div>
+        <span class="badge"><i>${icon}</i>${esc(r.verdict)}</span>
+        <div class="vname">${esc(m.name || r.ticker)}</div>
+        <div class="small muted">${esc(r.ticker)} · ${esc(m.sector || "")} · ${money(m.market_cap, ccy)} · data as of ${esc(r.as_of)} · peers: ${esc(r.peer_universe)}${r.member ? "" : " (not a member)"}</div>
+        <p class="vdetail">${esc(r.detail)}</p>
+      </div>
+      ${rankBlock}
+    </div>
+    <div class="grid g2">
+      <div class="card"><h2>In plain English</h2><ul class="plain" style="margin:0;padding-left:18px">${plainEnglish(r)}</ul></div>
+      <div class="card"><h2>Factor scores vs. sector peers</h2>${Object.keys(r.themes).length ? themeBars(r.themes)
+        : `<p class="muted small">Not scored: the stock was stopped at the safety gates, so it was never ranked.</p>`}</div>
+    </div>
+    <div class="card"><h2>Safety gates · ${passing}/${checks.length} pass</h2>
+      <div class="gates">${checks.map(([k, v]) => `<span class="gate ${v}" data-tip="${esc(GATE_HELP[k] || k)}: ${v}"><i>${v === "PASS" ? "✓" : v === "FAIL" ? "✕" : "?"}</i>${esc(GATE_HELP[k] ? GATE_HELP[k].split(":")[0] : k)}</span>`).join("")}</div>
+      <p class="small muted" style="margin:12px 0 0">Any ✕ rejects the stock. A ? means the data couldn't be verified; more than one rejects it too (fail-closed).</p></div>
+    <div class="card"><h2>Key numbers</h2><div class="grid g4">
+      ${METRICS.filter(([k]) => m[k] != null).map(([k, label, f, help]) => `<div class="metric"><div class="k">${label}</div>
+        <div class="v num">${k === "market_cap" ? money(m[k], ccy) : f(m[k])}</div><div class="h">${help}</div></div>`).join("")}
+    </div></div>
+    <div class="grid g2">
+      <div class="card"><h2>Before real money</h2><p class="small muted" style="margin-top:-8px">Things free data can't verify. Tick them as you check; saved on this device.</p>
+        ${r.manual_checks.map((c, i) => `<label class="check"><input type="checkbox" data-i="${i}" ${checked[i] ? "checked" : ""}><span>${esc(c)}</span></label>`).join("")}</div>
+      <div class="card"><h2>Your paper book</h2>
+        <p style="margin:0 0 6px">${r.your_book.held ? "✓ Held in your paper portfolio." : "Not held."}</p>
+        ${r.your_book.watchlist_since ? `<p style="margin:0 0 6px">On the watchlist since <b>${esc(r.your_book.watchlist_since)}</b>. A buy needs 10 days in the buy zone plus 2 independent reviews.</p>` : ""}
+        ${r.your_book.standing_veto ? `<p class="bad" style="margin:0">Standing veto: ${esc(r.your_book.standing_veto.reason)}</p>` : ""}
+        <p class="small muted" style="margin:12px 0 0">Market regime: ${esc((REGIME[r.regime.label] || [, r.regime.label])[1])}, max ${Math.round(r.regime.max_equity_exposure * 100)}% of money in stocks right now.</p></div>
+    </div>
+  </div>`;
+}
+
+async function analyze(t) {
+  t = t.trim().toUpperCase();
+  if (!t) return;
+  if (!/\.(NS|BO)$/.test(t) && market === "IN") t += ".NS";
+  $$("#searchForm .seg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mkt === (isIN(t) ? "IN" : "US")));
+  $("#ticker").value = t.replace(/\.NS$/, "");
+  const out = $("#result"), go = $("#go");
+  go.disabled = true;
+  out.innerHTML = loading(`Analyzing ${t} against its peers… the first look at a new stock can take a minute.`);
+  try {
+    const r = await api("/api/analyze", { ticker: t });
+    out.innerHTML = renderStock(r);
+    $$(".check input", out).forEach(cb => cb.onchange = () => {
+      const s = store.get("checks:" + t, {}); s[cb.dataset.i] = cb.checked; store.set("checks:" + t, s);
+    });
+    if (r.verdict !== "NO DATA") { const rec = [t, ...store.get("recent", []).filter(x => x !== t)].slice(0, 8); store.set("recent", rec); drawRecent(); }
+  } catch (e) { out.innerHTML = errorCard(e); }
+  go.disabled = false;
+}
+function drawRecent() {
+  const rec = store.get("recent", []);
+  $("#recent").innerHTML = rec.length ? `<span class="small muted" style="align-self:center">Recent:</span>` + rec.map(t => `<button data-t="${esc(t)}">${esc(t.replace(/\.NS$/, ""))}</button>`).join("") : "";
+  $$("#recent button").forEach(b => b.onclick = () => { market = isIN(b.dataset.t) ? "IN" : "US"; analyze(b.dataset.t); });
+}
+$("#searchForm").onsubmit = e => { e.preventDefault(); analyze($("#ticker").value); };
+function openStock(t) { show("analyze"); market = isIN(t) ? "IN" : "US"; analyze(t); scrollTo({ top: 0, behavior: "smooth" }); }
+
+/* ---------- screener ---------- */
+let universe = "nifty200", lastRun = null, actFilter = "ALL";
+segment($("#uniSeg"), "uni", u => { universe = u; });
+const ORDER = { BUY: 0, SELL: 1, TRIM: 2, HOLD: 3, WATCH: 4 };
+function evidenceLine(v) {
+  if (!v || v.status === "NOT_RUN" || v.status === "STALE") return `<span class="muted">No current backtest for this market (${esc(v?.note || "")})</span>`;
+  const ok = v.status === "PASSED";
+  return `<span class="${ok ? "ok" : "bad"}">${ok ? "✓ Proven edge" : "✕ No proven edge"}</span> · Sharpe ${v.strategy_sharpe} vs ${v.equal_weight_sharpe} for equal-weight · worst fall ${pct(v.strategy_max_dd, 0)} vs ${pct(v.equal_weight_max_dd, 0)}`
+    + (ok ? "" : `<div class="small muted">In this market, a low-cost index fund is an equally valid choice.</div>`);
+}
+function renderRun(r) {
+  const f = r.funnel, acts = Object.entries(r.actions).sort((a, b) => ORDER[a[1].action] - ORDER[b[1].action] || a[0].localeCompare(b[0]));
+  const counts = acts.reduce((c, [, a]) => (c[a.action] = (c[a.action] || 0) + 1, c), {});
+  const top = Math.min(30, f.passed_gates);
+  const stage = (label, n, c, tipTxt) => `<div class="stage" data-tip="${esc(tipTxt)}"><div class="small">${label}</div><div><div class="b" style="width:${n / f.universe * 100}%;--c:${c}"></div></div><div class="num" style="text-align:right">${n}</div></div>`;
+  const shown = acts.filter(([, a]) => actFilter === "ALL" || a.action === actFilter);
+  return `<div class="grid">
+    <div class="grid g2">
+      <div class="card"><h2>The funnel · ${esc(r.universe)} · ${esc(r.as_of)}</h2>
+        ${stage("In the index", f.universe, "#86b6ef", "Every stock in the index")}
+        ${stage("Passed safety gates", f.passed_gates, "#3987e5", "Survived all accounting, solvency and tradability checks")}
+        ${stage("Top 30 (buy zone)", top, "#1c5cab", "Highest-ranked by the combined factor score")}
+        <p class="small muted" style="margin:10px 0 0">Most common rejection reasons: ${Object.entries(f.top_rejection_reasons).slice(0, 5).map(([k, v]) => { const g = k.replace("?", "");
+          return `${esc((GATE_HELP[g] || g).split(":")[0])}${k.endsWith("?") ? " (unverifiable)" : ""} <b>${v}</b>`; }).join(" · ")}</p>
+        ${r.mode.includes("what-if") ? `<p class="small muted" style="margin:8px 0 0">What-if run: your paper book is locked to another index, so this run doesn't change your watchlist.</p>` : ""}</div>
+      <div class="card"><h2>Context</h2>
+        <p style="margin:0 0 10px"><b>Market:</b> ${esc((REGIME[r.regime.label] || [, r.regime.label])[1])}: max <b>${Math.round(r.regime.max_equity_exposure * 100)}%</b> in stocks.
+          ${r.regime.momentum_crash_guard ? "<span class='bad'>Momentum crash guard is ON.</span>" : ""}</p>
+        <p style="margin:0 0 10px"><b>Evidence:</b> ${evidenceLine(r.validation)}</p>
+        <p style="margin:0"><b>Paper book:</b> ${r.risk.nav != null ? Number(r.risk.nav).toLocaleString() : "unknown"} · ${r.risk.halted ? "<span class='bad'>HALTED</span>" : r.risk.buys_paused ? "<span class='bad'>buys paused</span>" : "normal"}</p></div>
+    </div>
+    <div class="card"><h2>Recommendations</h2>
+      <div class="filters">${["ALL", "BUY", "WATCH", "HOLD", "TRIM", "SELL"].map(k => `<button data-f="${k}" aria-pressed="${actFilter === k}">${k === "ALL" ? "All" : k[0] + k.slice(1).toLowerCase()} ${k === "ALL" ? acts.length : counts[k] || 0}</button>`).join("")}</div>
+      <div class="scroll"><table><thead><tr><th>Stock</th><th>Action</th><th>Target</th><th>Why</th></tr></thead><tbody>
+      ${shown.map(([t, a]) => `<tr class="click" data-t="${esc(t)}"><td><b>${esc(t.replace(/\.NS$/, ""))}</b></td><td><span class="tag ${a.action}">${a.action}</span>${a.action !== a.quant_action ? `<div class="small muted">system said ${a.quant_action}</div>` : ""}</td>
+        <td class="num">${pct(a.target_weight)}</td><td class="small">${esc(a.reason)}${(a.review_reasons || []).length ? `<div class="muted">${esc(a.review_reasons.join("; "))}</div>` : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Nothing in this group.</td></tr>`}
+      </tbody></table></div></div>
+    <div class="card"><h2>Top ranked</h2><div class="scroll"><table><thead><tr><th>#</th><th>Stock</th><th>Sector</th><th>Score</th><th>Value</th><th>Quality</th><th>Momentum</th><th>Low vol</th><th>Yield</th></tr></thead><tbody>
+      ${r.top_ranked.map(x => `<tr class="click" data-t="${esc(x.ticker)}"><td class="num">${x.rank}</td><td><b>${esc(x.ticker.replace(/\.NS$/, ""))}</b><div class="small muted">${esc(x.name || "")}</div></td><td class="small">${esc(x.sector || "")}</td>
+        <td class="num"><b>${fx(x.score)}</b></td>${["value", "quality", "momentum", "low_vol", "yield"].map(k => { const z = x["theme_" + k];
+          return `<td class="num small" style="color:${z == null ? "var(--muted)" : "var(--ink)"}">${z == null ? "–" : `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;background:${z >= 0 ? "var(--pos)" : "var(--neg)"};opacity:${Math.min(Math.abs(z) / 2, 1) * .85 + .15}"></span>${z >= 0 ? "+" : ""}${z.toFixed(2)}`}</td>`; }).join("")}</tr>`).join("")}
+      </tbody></table></div><p class="small muted" style="margin:10px 0 0">Click any row to open the full analysis.</p></div>
+  </div>`;
+}
+function drawRun() {
+  const out = $("#runOut"); out.innerHTML = renderRun(lastRun);
+  $$(".filters button", out).forEach(b => b.onclick = () => { actFilter = b.dataset.f; drawRun(); });
+  $$("tr.click", out).forEach(tr => tr.onclick = () => openStock(tr.dataset.t));
+}
+$("#runBtn").onclick = async () => {
+  const out = $("#runOut"), btn = $("#runBtn");
+  btn.disabled = true;
+  out.innerHTML = loading("Running the funnel. First run of the day fetches fresh data and can take a few minutes for 200–500 stocks.");
+  try { lastRun = await api("/api/run", { universe }); actFilter = "ALL"; drawRun(); }
+  catch (e) { out.innerHTML = errorCard(e); }
+  btn.disabled = false;
+};
+
+/* ---------- portfolio ---------- */
+let bookMkt = "IN";
+segment($("#bookSeg"), "mkt", m => { bookMkt = m; loadBook(); });
+async function loadBook() {
+  const out = $("#bookOut");
+  out.innerHTML = loading("Loading the paper book…");
+  try {
+    const s = await api("/api/status", { market: bookMkt });
+    const r = s.risk, ccy = bookMkt === "IN" ? "₹" : "$", n = v => v == null ? "–" : ccy + Math.round(v).toLocaleString(bookMkt === "IN" ? "en-IN" : "en-US");
+    const status = r.halted ? ["var(--crit)", "✕", "Halted"] : r.buys_paused ? ["var(--warn)", "◐", "Buys paused"] : ["var(--good)", "✓", "Normal"];
+    const wl = Object.entries(s.watchlist).map(([t, d]) => [t, Math.floor((new Date(s.as_of) - new Date(d)) / 864e5)]).sort((a, b) => b[1] - a[1]);
+    out.innerHTML = `<div class="grid">
+      <div class="grid g4">
+        <div class="card stat"><div class="k">Value</div><div class="v num">${n(r.nav ?? r.priced_nav)}</div></div>
+        <div class="card stat"><div class="k">Cash</div><div class="v num">${n(s.cash)}</div></div>
+        <div class="card stat"><div class="k">From peak</div><div class="v num">${pct(r.drawdown)}</div><div class="small muted">Buys pause at −15%, halt at −25%</div></div>
+        <div class="card stat"><div class="k">Status</div><div class="v" style="font-size:22px;margin-top:6px"><span class="badge" style="--vc:${status[0]}"><i>${status[1]}</i>${status[2]}</span></div>${r.reason ? `<div class="small muted">${esc(r.reason)}</div>` : ""}</div>
+      </div>
+      <div class="card"><h2>Positions</h2>${s.positions.length ? `<div class="scroll"><table><thead><tr><th>Stock</th><th>Shares</th><th>Avg cost</th><th>Last</th><th>Weight</th><th>Since</th></tr></thead><tbody>
+        ${s.positions.map(p => `<tr class="click" data-t="${esc(p.ticker)}"><td><b>${esc(p.ticker)}</b></td><td class="num">${p.shares}</td><td class="num">${fx(p.avg_cost)}</td><td class="num">${fx(p.last)}</td><td class="num">${pct(p.weight)}</td><td class="small">${esc(p.opened || "")}</td></tr>`).join("")}
+        </tbody></table></div>` : `<div class="empty small">No positions yet. Autopilot buys only after the 10-day cooling-off and 2 independent reviews.</div>`}</div>
+      <div class="grid g2">
+        <div class="card"><h2>Watchlist · cooling-off</h2>${wl.length ? wl.map(([t, d]) => `<div class="click" style="padding:6px 0;cursor:pointer" data-t="${esc(t)}">
+          <div style="display:flex;justify-content:space-between"><b>${esc(t.replace(/\.NS$/, ""))}</b><span class="small muted num">${Math.min(d, 10)}/10 days</span></div>
+          <div class="progress"><div style="width:${Math.min(d, 10) * 10}%"></div></div></div>`).join("") : `<p class="muted small">Empty. Run the screener to build it.</p>`}</div>
+        <div class="card"><h2>Standing vetoes</h2>${Object.keys(s.vetoes).length ? Object.entries(s.vetoes).map(([t, v]) => `<p style="margin:0 0 10px"><b>${esc(t)}</b> <span class="small muted">since ${esc(v.date)}</span><br><span class="small">${esc(v.reason)}</span></p>`).join("")
+          + `<p class="small muted">Only you can clear these: <code>stockfunnel clear-veto</code></p>` : `<p class="muted small">None. Vetoes appear when a reviewer rejects a stock.</p>`}</div>
+      </div>
+      ${s.trades.length ? `<div class="card"><h2>Recent trades</h2><div class="scroll"><table><thead><tr><th>Date</th><th>Stock</th><th>Action</th><th>Shares</th><th>Price</th><th>Why</th></tr></thead><tbody>
+        ${s.trades.slice().reverse().map(t => `<tr><td class="small">${esc(t.date)}</td><td><b>${esc(t.ticker)}</b></td><td><span class="tag ${t.action}">${t.action}</span></td><td class="num">${t.shares}</td><td class="num">${fx(t.price)}</td><td class="small">${esc(t.reason || "")}</td></tr>`).join("")}
+        </tbody></table></div></div>` : ""}
+    </div>`;
+    $$("[data-t]", out).forEach(el => el.onclick = () => openStock(el.dataset.t));
+  } catch (e) { out.innerHTML = errorCard(e); }
+}
+
+/* ---------- evidence ---------- */
+const CHECK_LABEL = {
+  "dsr>=0.95": "Not explained by luck (deflated Sharpe ≥ 0.95)",
+  "edge_in_80pct_of_cscv_half_samples": "Wins in 80%+ of random slices of history",
+  "sharpe_edge_vs_equal_weight_in_2of3_subperiods": "Wins in at least 2 of 3 eras",
+  "all_perturbations_keep_sharpe_edge": "Survives ±20% tweaks to every setting",
+};
+async function loadEvidence() {
+  const out = $("#evOut");
+  out.innerHTML = loading("Loading backtest results…");
+  const cards = [];
+  for (const [m, name] of [["IN", "India"], ["US", "United States"]]) {
+    try {
+      const v = await api("/api/validation", { market: m });
+      if (v.status === "NOT_RUN" || v.status === "STALE") { cards.push(`<div class="card"><h2>${name}</h2><p class="muted">${esc(v.note)}</p></div>`); continue; }
+      const ok = v.status === "PASSED";
+      const bar = (label, a, b, fmt, better) => { const mx = Math.max(Math.abs(a), Math.abs(b)) || 1;
+        return `<div style="margin:12px 0"><div class="small" style="margin-bottom:4px">${label} <span class="muted">(${better})</span></div>
+          <div class="stage" style="grid-template-columns:110px 1fr 60px;margin:4px 0"><div class="small">Strategy</div><div><div class="b" style="width:${Math.abs(a) / mx * 100}%;--c:var(--pos)"></div></div><div class="num small" style="text-align:right">${fmt(a)}</div></div>
+          <div class="stage" style="grid-template-columns:110px 1fr 60px;margin:4px 0"><div class="small">Equal-weight</div><div><div class="b" style="width:${Math.abs(b) / mx * 100}%;--c:var(--axis)"></div></div><div class="num small" style="text-align:right">${fmt(b)}</div></div></div>`; };
+      cards.push(`<div class="card verdict" style="--vc:${ok ? "var(--good)" : "var(--crit)"};display:block">
+        <span class="badge"><i>${ok ? "✓" : "✕"}</i>${ok ? "Proven edge" : "No proven edge"}</span>
+        <div class="vname">${name}</div><div class="small muted">${esc(v.universe)} · ${esc(v.period)} · tested ${v.age_days} days ago</div>
+        ${bar("Return per unit of risk (Sharpe)", v.strategy_sharpe, v.equal_weight_sharpe, x => x.toFixed(2), "higher is better")}
+        ${bar("Worst fall", v.strategy_max_dd, v.equal_weight_max_dd, x => pct(x, 0), "shorter bar is better")}
+        <div class="gates" style="margin-top:12px">${Object.entries(v.checks).map(([k, p]) => `<span class="gate ${p ? "PASS" : "FAIL"}"><i>${p ? "✓" : "✕"}</i>${esc(CHECK_LABEL[k] || k.replace(/_/g, " "))}</span>`).join("")}</div>
+        <p class="small muted" style="margin:12px 0 0">${ok ? "The systematic approach beat simply owning everything, robustly." : "No reliable edge over simply owning everything. A low-cost index fund is an equally valid choice here."}</p></div>`);
+    } catch (e) { cards.push(errorCard(e)); }
+  }
+  out.innerHTML = cards.join("");
+}
+
+/* ---------- boot ---------- */
+drawRecent();
+loadRegimes();
+$("#result").innerHTML = `<div class="card empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h18M6 10h12M9.5 16h5M11 21h2"/></svg>
+  <div><b>Type a ticker to see its verdict</b></div><div class="small">The safety gates, its rank among peers, factor scores and a plain-English summary.</div></div>`;
+show(store.get("tab", "analyze"));
+</script>
+</body>
+</html>

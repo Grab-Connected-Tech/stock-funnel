@@ -16,6 +16,7 @@ dependencies = [
 [project.scripts]
 stockfunnel = "stockfunnel.cli:main"
 stockfunnel-mcp = "stockfunnel.mcp_server:main"
+stockfunnel-ui = "stockfunnel.web:main"
 
 [project.optional-dependencies]
 mcp = [

@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "stockfunnel-ui", "runtimeExecutable": "uv", "runtimeArgs": ["run", "stockfunnel-ui"], "port": 8765 }
+  ]
+}

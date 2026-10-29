@@ -38,6 +38,18 @@ uv run python tests/test_guardrails.py       # self-check of the guardrails
 
 Reports are written to `reports/`, paper books to `state/`, reviews to `reviews/`, and the journal to `journal/`.
 
+### Web UI
+```bash
+uv run stockfunnel-ui        # then open http://127.0.0.1:8765
+```
+Four tabs:
+- **Analyze:** any stock's verdict, rank meter, factor scores, a plain-English summary, safety gates, and a manual-check list saved per stock.
+- **Screener:** runs the funnel on an index.
+- **Portfolio:** the paper book and the cooling-off watchlist.
+- **Evidence:** the backtest verdicts.
+
+The UI only reads and recommends. It never trades, edits policy or clears vetoes. It binds to localhost only. Set `STOCKFUNNEL_PORT` to change the port.
+
 ### Review loop (how an AI participates)
 1. `stockfunnel run <universe>`. BUY candidates come back as *pending review*.
 2. `stockfunnel packet <universe> <TICKER>` gives the facts the reviewer may use (no prices, P&L or analyst ratings, to avoid anchoring and herding), the schema, and the instructions.
