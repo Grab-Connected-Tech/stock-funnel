@@ -35,6 +35,9 @@ def price_metrics(close: pd.Series, volume: pd.Series) -> dict:
         "max_dd_1y": float((c[-252:] / peak - 1).min()),
         "above_200dma": bool(c.iloc[-1] > c[-200:].mean()),
         "max_daily_move_1y": float(r[-252:].abs().max()),
+        "ret_5d": ret(5, 0),
+        # unusual activity: busiest of the last 5 sessions vs the 60-day median volume
+        "volume_spike_5d": float(v[-5:].max() / v[-65:-5].median()) if v[-65:-5].median() > 0 else None,
     }
 
 

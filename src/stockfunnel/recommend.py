@@ -75,7 +75,7 @@ def target_weight(ticker: str, scored: pd.DataFrame, market: str, exposure: floa
 
 
 def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dict | None = None,
-          today: date | None = None) -> dict:
+          today: date | None = None, signals: dict | None = None) -> dict:
     """r: the analyze_stock report; fm: the stock's full metric row.
     checks: automated pre-trade checks {name: {"status": PASS|FAIL|UNKNOWN, "detail": str}}."""
     today = date.fromisoformat(r["as_of"]) if today is None else today
@@ -86,6 +86,11 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     failed_checks = [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in checks.items() if v["status"] == "FAIL"]
     warn_checks = [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in checks.items() if v["status"] == "WARN"]
     unverified = [k.replace("_", " ") for k, v in checks.items() if v["status"] == "UNKNOWN" and k in CRITICAL]
+    signals = signals or {}
+    failed_checks += [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in signals.items() if v["status"] == "FAIL"]
+    warn_checks += [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in signals.items() if v["status"] == "WARN"]
+    waits = [v["detail"] for v in signals.values() if v["status"] == "WAIT"]
+    positives = [v["detail"] for v in signals.values() if v["status"] == "POSITIVE"]
     why, risks = [], []
 
     themes = sorted(r["themes"].items(), key=lambda kv: -kv[1])
@@ -131,6 +136,9 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     elif (m_ret := fm.get("ret_1m")) is not None and m_ret > PORTFOLIO["max_1m_return_for_buy"]:
         action = "WAIT"
         why.insert(0, f"Ranks {rank}, but jumped {m_ret:.0%} this month; the system doesn't chase spikes")
+    elif waits and not held and rank <= n:
+        action = "WAIT"
+        why.insert(0, f"Ranks {rank}, but something unexplained just happened: {waits[0]}. Wait for it to settle")
     elif unverified and not held:
         action = "WAIT"
         why.insert(0, f"Ranks {rank}, but couldn't verify {', '.join(unverified)} today (source unreachable); retry later")
@@ -154,7 +162,11 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     if reg["max_equity_exposure"] < 1:
         pts -= 1; notes.append("−1 risk-off market")  # noqa: E702
     if warn_checks:
-        pts -= 1; notes.append("−1 filing warning")  # noqa: E702
+        k = min(len(warn_checks), 2)
+        pts -= k; notes.append(f"−{k} warning sign{'s' if k > 1 else ''} in filings/signals")  # noqa: E702
+    if positives and action in ("BUY", "BUY AFTER", "HOLD"):
+        pts += 1; notes.append("+1 " + positives[0].split(":")[0])  # noqa: E702
+        why.append(positives[0][0].upper() + positives[0][1:])
     proven = validation.get("status") == "PASSED"
     # The backtest validates only the price factors (momentum, low volatility). Credit that evidence
     # only when those factors are what make this stock attractive; value/quality/yield are untested.
@@ -190,6 +202,7 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
         "alternative": None if proven else ETF_ALTERNATIVE.get(market),
         "next_review": (today + timedelta(days=30)).isoformat(),
         "checks": checks,
+        "signals": signals,
     }
 
 

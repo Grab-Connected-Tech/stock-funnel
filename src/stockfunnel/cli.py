@@ -65,6 +65,9 @@ def render_stock(r: dict) -> str:
         out += ["**Sell if:**"] + [f"- {w}" for w in rec["sell_if"]]
     if rec.get("alternative"):
         out += [f"**Alternative:** {rec['alternative']}"]
+    if rec.get("signals"):
+        out += ["**Hidden signals:**"] + [f"- {dict(POSITIVE='+', FAIL='✕', WARN='!', WAIT='◷').get(v['status'], '·')} "
+                                          f"{k.replace('_', ' ')}: {v['detail']}" for k, v in rec["signals"].items()]
     if rec["checks"]:
         out += ["**Automated checks:**"] + [f"- {dict(PASS='✓', FAIL='✕', WARN='!').get(v['status'], '?')} {k.replace('_', ' ')}: {v['detail']}"
                                            for k, v in rec["checks"].items()]

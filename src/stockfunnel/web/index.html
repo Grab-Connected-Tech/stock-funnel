@@ -132,6 +132,7 @@ section[hidden] { display: none; }
 .gate { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 9px; background: var(--surface-2); font-size: 13px; }
 .gate i { font-style: normal; font-weight: 800; }
 .gate.PASS i { color: var(--good); } .gate.FAIL { background: color-mix(in srgb, var(--crit) 14%, transparent); } .gate.FAIL i { color: var(--crit); }
+.gate.NEUTRAL { background: var(--surface-2); } .gate.NEUTRAL i { color: var(--muted); }
 .gate.WARN { background: color-mix(in srgb, var(--serious) 20%, transparent); } .gate.WARN i { color: var(--ink); }
 .gate.UNKNOWN { background: color-mix(in srgb, var(--warn) 18%, transparent); } .gate.UNKNOWN i { color: var(--ink-2); }
 
@@ -358,6 +359,7 @@ function recCard(rec) {
     </div>
     <div class="body">${list("Why", rec.why)}${list("Risks", rec.risks)}${list("Sell if", rec.sell_if)}
       ${rec.alternative ? `<div><h3>Alternative</h3><p class="small" style="margin:0">${esc(rec.alternative)}</p></div>` : ""}
+      ${Object.keys(rec.signals || {}).length ? `<div><h3>Hidden signals</h3>${Object.entries(rec.signals).map(([k, v]) => `<div class="small" style="margin-bottom:6px"><span class="gate ${{ POSITIVE: "PASS", NEUTRAL: "NEUTRAL", WAIT: "UNKNOWN" }[v.status] || v.status}" style="padding:2px 6px"><i>${{ POSITIVE: "+", FAIL: "✕", WARN: "!", WAIT: "◷", NEUTRAL: "·" }[v.status] || "?"}</i></span> <b>${esc(k.replace(/_/g, " "))}</b> <span class="muted">${esc(v.detail)}</span></div>`).join("")}</div>` : ""}
       ${checks.length ? `<div><h3>Automated checks</h3>${checks.map(([k, v]) => `<div class="small" style="margin-bottom:6px"><span class="gate ${v.status}" style="padding:2px 6px"><i>${{ PASS: "✓", FAIL: "✕", WARN: "!" }[v.status] || "?"}</i></span> <b>${esc(k.replace(/_/g, " "))}</b> <span class="muted">${esc(v.detail)}</span></div>`).join("")}</div>` : ""}
     </div></div>`;
 }

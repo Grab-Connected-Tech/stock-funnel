@@ -20,6 +20,7 @@ Every decision passes through a fixed funnel. Code makes all quantitative decisi
 | 6 | Portfolio | Top 30, held until rank > 75 (US) / 60 (IN). Inverse-vol weights, 6–7% name cap, 25% sector cap, ≤2% of daily traded value. 10-day cooling-off before any first buy; no buys after a +25% month | Novy-Marx & Velikov (turnover kills anomalies); Barber & Odean (overtrading) |
 | 7 | Review | LLM/human fills a strict schema: checklist (Buffett/Akre/Fundsmith/Marcellus), pre-mortem, kill criteria, evidence citing fact IDs. Veto-only | StockBench, Alpha Arena, FinanceBench: LLMs are poor traders and hallucinate numbers |
 | 8b | Automated checks | India: NSE surveillance lists (ASM/GSM/ESM), price band / circuit lock-in, promoter pledges, auditor resignations and forensic audits. US: SEC restatements (8-K 4.02), auditor changes (4.01), going-concern language. Free official sources, no keys | Replaces the manual "before real money" checklist |
+| 8c | Hidden signals | Footprints events leave before headlines: insider open-market buying clusters (NSE PIT / Yahoo insider data), the exchange's own red-flag filing categories (fraud, default, insolvency, delayed results, results queries; US late-filing notices, bankruptcy, delisting, impairment), price tells (falling while the sector isn't, volume shocks), and 90-day analyst estimate revisions. Severe events veto, shocks mean WAIT, soft flags cost conviction, positives add at most one point | Cohen-Malloy-Pomorski 2012, Lakonishok-Lee 2001, Alford-Jones-Zmijewski 1994, Chan-Jegadeesh-Lakonishok 1996. Insider selling, news sentiment and social trends deliberately excluded |
 | 9 | Recommendation | One action (BUY · BUY AFTER date · WAIT · HOLD · SELL · AVOID), conviction as a transparent points tally, position size, why/risks, explicit sell triggers, and the ETF alternative where no edge is proven. Pure rules, no LLM | Every input above |
 | 10 | Track record | Every official call is journaled. `stockfunnel scorecard` grades them against the market at 1/3/6/12 months | The only legitimate way to tune later: live, out-of-sample results |
 | 8 | Execute | Manual: report. Autopilot: paper broker with drawdown kill switches (−15% pauses buys, −25% halts until a human resets), −3% daily-loss pause, stale-data block, idempotent orders, monthly buy and annual turnover budgets, ≤2% of ADV per order, monthly rebalance cadence. Sells are never blocked by budgets | SEC 15c3-5-style pre-trade checks |
@@ -110,7 +111,7 @@ No weight or threshold was re-fitted to the backtest. That would raise backtest 
 - **Fresher fundamentals.** Valuation and profitability use trailing 12 months when 4 consecutive quarters exist. The forensic gates stay on audited annual statements.
 - **Right benchmark.** Validation now compares against investable factor ETFs, not just equal-weight.
 - **Tax-aware selling (India).** A rank-based sell of a winner within 60 days of its 1-year mark waits for the 12.5% long-term rate instead of 20%. Safety-gate sells never wait.
-- **Track record.** Recommendations are logged and graded out of sample.
+- **Track record.** Recommendations are logged and graded out of sample, including each hidden signal on its own (`scorecard` → `by_signal`). A signal that doesn't prove itself within a year should be removed.
 
 ## Known limitations (read before trusting anything)
 

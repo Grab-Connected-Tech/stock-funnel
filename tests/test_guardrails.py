@@ -192,6 +192,32 @@ def test_recommendation_rules():
     assert recommend.build(base, {}, scored, unproven, ok)["alternative"]  # ETF alternative shown without an edge
 
 
+def test_hidden_signals():
+    from stockfunnel import recommend, signals
+    m = pd.DataFrame({"sector": ["A"] * 8, "ret_1m": [0.02, 0.01, 0.03, 0.0, 0.02, 0.01, 0.02, -0.25],
+                      "volume_spike_5d": [1.0] * 7 + [1.2], "ret_5d": [0.0] * 8}, index=[f"S{i}" for i in range(8)])
+    assert signals.price_tells("S7", m)["status"] == "WAIT"                 # down 25% while sector flat
+    assert signals.price_tells("S0", m)["status"] == "NEUTRAL"
+    m.loc["S1", ["volume_spike_5d", "ret_5d"]] = [4.0, -0.08]
+    assert signals.price_tells("S1", m)["status"] == "WAIT"                 # unexplained volume shock
+    scored = pd.DataFrame({"rank": [1.0], "vol_1y": [0.2], "sector": ["A"], "score": [1.0]}, index=["X.NS"])
+    base = {"ticker": "X.NS", "as_of": "2026-10-27", "rank": 1, "ranked_peers": 1,
+            "themes": {"value": 1.0, "quality": 1.0, "momentum": 1.0, "low_vol": 1.0, "yield": 1.0},
+            "gates": {"failed": [], "unknown": [], "passed": True, "checks": {}}, "metrics": {},
+            "regime": {"max_equity_exposure": 1.0},
+            "your_book": {"held": False, "watchlist_since": "2026-10-01", "standing_veto": None}}
+    sig = lambda st: {"corporate_events": {"status": st, "detail": "x"}}  # noqa: E731
+    v = {"status": "PASSED"}
+    assert recommend.build(base, {}, scored, v, {}, signals=sig("FAIL"))["action"] == "AVOID"
+    assert recommend.build(base, {}, scored, v, {}, signals=sig("WAIT"))["action"] == "WAIT"
+    warned = recommend.build(base, {}, scored, v, {}, signals=sig("WARN"))
+    plain = recommend.build(base, {}, scored, v, {}, signals=sig("NEUTRAL"))
+    assert warned["action"] == "BUY" and warned["conviction_points"] != plain["conviction_points"]
+    good = recommend.build(base, {}, scored, v, {}, signals={"a": {"status": "POSITIVE", "detail": "p: 1"},
+                                                            "b": {"status": "POSITIVE", "detail": "q: 2"}})
+    assert sum(n in ("+1 p", "+1 q") for n in good["conviction_points"]) == 1  # positives add at most one point
+
+
 def test_india_tax_deferral():
     from stockfunnel.portfolio import tax_deferral_days as d
     day = date(2026, 10, 28)

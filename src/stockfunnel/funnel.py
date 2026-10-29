@@ -176,10 +176,11 @@ def analyze_stock(ticker: str, universe: str | None = None) -> dict:
     }
     from . import recommend
     full = {k: (None if isinstance(v, float) and np.isnan(v) else v) for k, v in m.items()}
-    out["recommendation"] = recommend.build(out, full, sc, latest_validation(market), checks.run(ticker))
-    from . import scorecard
+    from . import scorecard, signals
+    sig = signals.run(ticker, a["metrics"])
+    out["recommendation"] = recommend.build(out, full, sc, latest_validation(market), checks.run(ticker), signals=sig)
     scorecard.log(market, ticker, a["as_of"], out["recommendation"]["action"], a["last_prices"].get(ticker), "analyze",
-                  out["recommendation"]["conviction"])
+                  out["recommendation"]["conviction"], {k: v["status"] for k, v in sig.items()})
     return out
 
 
@@ -240,14 +241,24 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
     if official:  # what-if runs never advance the cooling-off clock
         state["watchlist"] = p["watchlist"]
 
+    from . import signals as sigs
+    run_signals = {}
     for t, act in p["actions"].items():  # automated pre-trade checks (NSE / SEC) on every proposed buy
         if act["action"] == "BUY":
             res = checks.run(t)
             bad = [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in res.items()
                    if v["status"] == "FAIL" or (v["status"] == "UNKNOWN" and k in checks.CRITICAL)]
+            if t in a["metrics"].index:
+                run_signals[t] = sigs.run(t, a["metrics"])
+                bad += [f"{k.replace('_', ' ')}: {v['detail']}" for k, v in run_signals[t].items() if v["status"] in ("FAIL", "WAIT")]
             if bad:
                 act.update(action="HOLD" if t in held else "WATCH", reason="pre-trade check: " + "; ".join(bad),
                            target_weight=round(held.get(t, 0.0), 4))
+        elif t in held and act["action"] in ("HOLD", "TRIM") and t in a["metrics"].index:
+            run_signals[t] = sigs.run(t, a["metrics"])
+            severe = [v["detail"] for v in run_signals[t].values() if v["status"] == "FAIL"]
+            if severe:  # a severe corporate event on a holding is a sell, like a failed safety gate
+                act.update(action="SELL", reason="corporate red flag: " + severe[0], target_weight=0.0)
 
     final = {}
     for t, act in p["actions"].items():
@@ -270,7 +281,8 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
         for t, f in final.items():
             act = {"WATCH": "BUY AFTER" if f["reason"].startswith("cooling-off") else None, "TRIM": "HOLD"}.get(f["action"], f["action"])
             if act:
-                scorecard.log(market, t, a["as_of"], act, last.get(t), "run")
+                scorecard.log(market, t, a["as_of"], act, last.get(t), "run",
+                              signals={k: v["status"] for k, v in run_signals.get(t, {}).items()} or None)
         for t in a["rejected"]:  # grading rejected stocks over time tests whether the gates avoid losers
             if t not in final:
                 scorecard.log(market, t, a["as_of"], "AVOID", last.get(t), "run")

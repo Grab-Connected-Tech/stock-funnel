@@ -17,10 +17,12 @@ HORIZONS = {"1m": 21, "3m": 63, "6m": 126, "12m": 252}
 WANT = {"BUY": 1, "BUY AFTER": 1, "HOLD": 1, "SELL": -1, "AVOID": -1}
 
 
-def log(market: str, ticker: str, as_of: str, action: str, price: float | None, source: str, conviction=None):
+def log(market: str, ticker: str, as_of: str, action: str, price: float | None, source: str, conviction=None,
+        signals: dict | None = None):
+    """signals: {name: status}, kept so each hidden signal can later be graded on its own."""
     if action in WANT and price:
         journal.record("recommendation", {"market": market, "ticker": ticker, "as_of": as_of, "action": action,
-                                          "price": price, "source": source, "conviction": conviction})
+                                          "price": price, "source": source, "conviction": conviction, "signals": signals})
 
 
 def grade() -> dict:
@@ -41,7 +43,8 @@ def grade() -> dict:
             if p["ticker"] not in px:
                 continue
             start = px.index.searchsorted(pd.Timestamp(p["as_of"]).tz_localize(px.index.tz), side="right") - 1
-            row = {"market": market, "action": p["action"], "ticker": p["ticker"], "as_of": p["as_of"]}
+            row = {"market": market, "action": p["action"], "ticker": p["ticker"], "as_of": p["as_of"],
+                   **{f"sig:{k}={v}": 1 for k, v in (p.get("signals") or {}).items() if v not in ("NEUTRAL", "UNKNOWN")}}
             for h, n in HORIZONS.items():
                 if start >= 0 and start + n < len(px):
                     s, b = px[p["ticker"]], px[bench]
@@ -57,6 +60,16 @@ def grade() -> dict:
                 stats[h] = {"graded": len(x), "avg_excess_vs_market": round(float(x.mean()), 4),
                             "hit_rate": round(float((x * WANT[action] > 0).mean()), 3)}
         out["by_action"][action] = stats
+    sig_cols = [c for c in df.columns if c.startswith("sig:")]
+    out["by_signal"] = {}
+    for c in sig_cols:
+        g = df[df[c] == 1]
+        stats = {"count": len(g)}
+        for h in HORIZONS:
+            if h in g and g[h].notna().any():
+                x = g[h].dropna()
+                stats[h] = {"graded": len(x), "avg_excess_vs_market": round(float(x.mean()), 4)}
+        out["by_signal"][c[4:]] = stats
     out["note"] = ("hit_rate = share of calls that went the right way vs the market (BUY/HOLD beat it, "
                    "SELL/AVOID lagged it). Needs ~30+ graded calls per action before it means anything.")
     return out
