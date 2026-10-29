@@ -9,9 +9,12 @@ from . import data
 PANIC_VOL_INDEX = {"US": 30.0, "IN": 25.0}
 
 
-def assess(market: str) -> dict:
+def assess(market: str, as_of=None) -> dict:
+    """as_of: evaluate as of a past date (point-in-time replays); None = latest data."""
     m = data.MARKETS[market]
     px = data.prices([m["benchmark"], m["vol_index"]], period="5y")["close"]
+    if as_of is not None:
+        px = px[px.index.tz_localize(None) <= __import__("pandas").Timestamp(as_of)]
     idx, vix = px[m["benchmark"]].dropna(), px[m["vol_index"]].dropna()
 
     # Rule 1 (Faber 2007): month-end close vs 10-month SMA. Below -> cap equity at 50%.

@@ -4,3 +4,4 @@ journal/
 reports/
 __pycache__/
 *.pyc
+replays/

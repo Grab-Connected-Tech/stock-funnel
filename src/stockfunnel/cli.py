@@ -133,6 +133,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("universe")
     sub.add_parser("verify-journal", help="check the decision journal hash chain")
     sub.add_parser("scorecard", help="grade past recommendations against the market (live track record)")
+    p = sub.add_parser("replay", help="hindsight experiment: rewind N months, rank with the data of then, grade vs since "
+                                      "(kept separate: never touches the journal, scorecard or paper book)")
+    p.add_argument("universe")
+    p.add_argument("--months", type=int, default=3, help="how far back (single replay)")
+    p.add_argument("--multi", type=int, metavar="N", help="instead: replay every month-end over the last N months")
     a = ap.parse_args(argv)
 
     if a.cmd == "run":
@@ -205,6 +210,11 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "scorecard":
         from . import scorecard
         print(json.dumps(scorecard.grade(), indent=2))
+    elif a.cmd == "replay":
+        from . import replay
+        out = replay.multi_date(a.universe, a.multi) if a.multi else replay.top_picks(a.universe, a.months)
+        path = replay.save(f"{a.universe}-{'multi' + str(a.multi) if a.multi else str(a.months) + 'm'}", out)
+        print(json.dumps(out | {"saved_to": str(path)}, indent=2, default=str))
     elif a.cmd == "verify-journal":
         ok = journal.verify()
         print("journal OK" if ok else "journal TAMPERED")
