@@ -82,7 +82,7 @@ The UI only reads and recommends. It never trades, edits policy or clears vetoes
 Claude Desktop is configured in `~/Library/Application Support/Claude/claude_desktop_config.json`. Use the full path to `uv`, because desktop apps don't inherit your shell PATH. Restart Claude Desktop after editing. Example prompt: *"I have ₹10,000 to invest in Indian stocks and hope for 1% a month over the next 3 months. Use stockfunnel."*
 ```json
 { "mcpServers": { "stockfunnel": {
-    "command": "uv", "args": ["--directory", "/Users/abhilashreddy/Projects/stock-funnel", "run", "stockfunnel-mcp"],
+    "command": "uv", "args": ["--directory", "/path/to/stock-funnel", "run", "stockfunnel-mcp"],
     "env": { "STOCKFUNNEL_REVIEWER_ID": "claude" } } } }
 ```
 **For any LLM (Claude, ChatGPT, Gemini, Cursor, ...):**

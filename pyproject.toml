@@ -3,9 +3,6 @@ name = "stockfunnel"
 version = "0.1.0"
 description = "Evidence-based, guard-railed stock selection funnel for US and Indian equities"
 readme = "README.md"
-authors = [
-    { name = "Abhilash Reddy", email = "abhi@grabians.com" }
-]
 requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.5.4",
