@@ -48,6 +48,9 @@ PORTFOLIO = Frozen({
     "max_annual_turnover": 2.0,        # buy-side value / NAV per trailing year, incl. initial build-out (~1.0)
     "min_days_between_rebalances": 25, # monthly cadence = what validate.py backtests (gate SELLs exempt)
     "max_trades_per_month": 20,
+    # India taxes gains at 20% under 12 months vs 12.5% after: a rank-based (not safety) sell of a
+    # winner within this many days of its 1-year mark waits for the lower rate. Certain saving, no forecast.
+    "ltcg_defer_window_days": {"IN": 60, "US": 0},
 })
 
 RISK = Frozen({

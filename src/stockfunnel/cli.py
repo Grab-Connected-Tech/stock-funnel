@@ -63,6 +63,8 @@ def render_stock(r: dict) -> str:
         out += ["**Risks:**"] + [f"- {w}" for w in rec["risks"]]
     if rec["sell_if"]:
         out += ["**Sell if:**"] + [f"- {w}" for w in rec["sell_if"]]
+    if rec.get("alternative"):
+        out += [f"**Alternative:** {rec['alternative']}"]
     if rec["checks"]:
         out += ["**Automated checks:**"] + [f"- {dict(PASS='✓', FAIL='✕', WARN='!').get(v['status'], '?')} {k.replace('_', ' ')}: {v['detail']}"
                                            for k, v in rec["checks"].items()]
@@ -125,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("validate", help="price-factor backtest with deflated Sharpe")
     p.add_argument("universe")
     sub.add_parser("verify-journal", help="check the decision journal hash chain")
+    sub.add_parser("scorecard", help="grade past recommendations against the market (live track record)")
     a = ap.parse_args(argv)
 
     if a.cmd == "run":
@@ -194,6 +197,9 @@ def main(argv: list[str] | None = None) -> int:
         (Path("reports") / f"validate-{Path(a.universe).stem}.json").write_text(json.dumps(v, indent=2))
         journal.record("validation", v)
         print(json.dumps(v, indent=2))
+    elif a.cmd == "scorecard":
+        from . import scorecard
+        print(json.dumps(scorecard.grade(), indent=2))
     elif a.cmd == "verify-journal":
         ok = journal.verify()
         print("journal OK" if ok else "journal TAMPERED")

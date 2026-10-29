@@ -26,9 +26,18 @@ def capped_weights(raw: pd.Series, sectors: pd.Series, cap: float, sector_cap: f
     return w * (sector_cap / w.groupby(sectors).transform("sum")).clip(upper=1.0)
 
 
+def tax_deferral_days(market: str, opened: str | None, gain: float | None, as_of: date) -> int:
+    """Days to wait before a rank-based sell so a winner qualifies for long-term capital gains (0 = sell now)."""
+    window = P["ltcg_defer_window_days"][market]
+    if not window or not opened or gain is None or gain <= 0:
+        return 0
+    left = 366 - (as_of - date.fromisoformat(opened)).days
+    return left if 0 < left <= window else 0
+
+
 def plan(scored: pd.DataFrame, rejected: dict[str, list[str]], market: str, regime: dict,
          holdings: dict[str, float], watchlist: dict[str, str], vetoes: dict[str, dict], capital: float,
-         as_of: date, last_rebalance: str | None = None) -> dict:
+         as_of: date, last_rebalance: str | None = None, positions_meta: dict[str, dict] | None = None) -> dict:
     """
     scored: gate-passing tickers with 'rank', 'vol_1y', 'sector', 'adv_value_60d', 'ret_1m', 'score'.
     rejected: ticker -> failed gate names. holdings: ticker -> current weight.
@@ -50,7 +59,14 @@ def plan(scored: pd.DataFrame, rejected: dict[str, list[str]], market: str, regi
         elif t not in scored.index or pd.isna(scored.at[t, "rank"]):
             actions[t] = {"action": "SELL", "reason": "no longer rankable (left universe or insufficient data)"}
         elif scored.at[t, "rank"] > buffer and rebalance_due:
-            actions[t] = {"action": "SELL", "reason": f"rank {int(scored.at[t, 'rank'])} outside hold buffer {buffer}"}
+            meta = (positions_meta or {}).get(t, {})
+            wait = tax_deferral_days(market, meta.get("opened"), meta.get("gain"), as_of)
+            if wait:  # safety-gate sells above never wait; only this rank-based one does
+                actions[t] = {"action": "HOLD", "reason": f"rank {int(scored.at[t, 'rank'])} outside buffer, but selling in "
+                              f"{wait} days qualifies for long-term tax (12.5% vs 20%)",
+                              "target_weight": round(holdings[t], 4)}  # held as-is: never re-weighted or topped up
+            else:
+                actions[t] = {"action": "SELL", "reason": f"rank {int(scored.at[t, 'rank'])} outside hold buffer {buffer}"}
         else:
             keep.append(t)
 

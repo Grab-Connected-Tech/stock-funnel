@@ -116,11 +116,16 @@ def fundamentals(ticker: str) -> dict:
             info = t.info or {}
         except Exception:
             info = {}
+        try:
+            income_q = t.quarterly_income_stmt
+        except Exception:
+            income_q = None
         return {
             "income": t.income_stmt,
             "balance": t.balance_sheet,
             "cashflow": t.cashflow,
+            "income_q": income_q,
             "info": info,
         }
 
-    return _cached(f"fund_{ticker}", fetch, max_age_days=7)
+    return _cached(f"fund2_{ticker}", fetch, max_age_days=7)

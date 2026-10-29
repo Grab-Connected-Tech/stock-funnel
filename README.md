@@ -20,7 +20,8 @@ Every decision passes through a fixed funnel. Code makes all quantitative decisi
 | 6 | Portfolio | Top 30, held until rank > 75 (US) / 60 (IN). Inverse-vol weights, 6–7% name cap, 25% sector cap, ≤2% of daily traded value. 10-day cooling-off before any first buy; no buys after a +25% month | Novy-Marx & Velikov (turnover kills anomalies); Barber & Odean (overtrading) |
 | 7 | Review | LLM/human fills a strict schema: checklist (Buffett/Akre/Fundsmith/Marcellus), pre-mortem, kill criteria, evidence citing fact IDs. Veto-only | StockBench, Alpha Arena, FinanceBench: LLMs are poor traders and hallucinate numbers |
 | 8b | Automated checks | India: NSE surveillance lists (ASM/GSM/ESM), price band / circuit lock-in, promoter pledges, auditor resignations and forensic audits. US: SEC restatements (8-K 4.02), auditor changes (4.01), going-concern language. Free official sources, no keys | Replaces the manual "before real money" checklist |
-| 9 | Recommendation | One action (BUY · BUY AFTER date · WAIT · HOLD · SELL · AVOID), conviction as a transparent points tally (capped at MEDIUM where the strategy has no proven edge), position size, why/risks, and explicit sell triggers. Pure rules, no LLM | Every input above |
+| 9 | Recommendation | One action (BUY · BUY AFTER date · WAIT · HOLD · SELL · AVOID), conviction as a transparent points tally, position size, why/risks, explicit sell triggers, and the ETF alternative where no edge is proven. Pure rules, no LLM | Every input above |
+| 10 | Track record | Every official call is journaled. `stockfunnel scorecard` grades them against the market at 1/3/6/12 months | The only legitimate way to tune later: live, out-of-sample results |
 | 8 | Execute | Manual: report. Autopilot: paper broker with drawdown kill switches (−15% pauses buys, −25% halts until a human resets), −3% daily-loss pause, stale-data block, idempotent orders, monthly buy and annual turnover budgets, ≤2% of ADV per order, monthly rebalance cadence. Sells are never blocked by budgets | SEC 15c3-5-style pre-trade checks |
 
 The thresholds all live in [policy.py](src/stockfunnel/policy.py). That file is frozen by convention, and no MCP tool can change it.
@@ -92,15 +93,24 @@ Complementary official MCP servers (see [data-sources.md](docs/research/data-sou
 
 This tests the price-based sleeve only: momentum + low vol + lottery exclusion + rank buffer + trend regime. Returns are net of costs over 2008-03 → 2026-10, with bad prints repaired.
 
-| Market | Strategy Sharpe / MaxDD | Equal-weight universe | Index (price only) | Deflated Sharpe | Edge in CSCV half-samples | Verdict |
-|---|---|---|---|---|---|---|
-| India (Nifty 200) | **1.40 / −20%** | 0.88 / −48% | 0.43 / −52% | 0.998 | 99.9% | **PASSED**: every ±20% parameter variant keeps a +0.43 to +0.50 Sharpe edge |
-| US (S&P 500) | 1.00 / **−22%** | 0.95 / −45% | 0.65 / −48% | 0.936 | 46% | **FAILED**: no reliable Sharpe edge; the value is drawdown control |
+| Market | Strategy Sharpe / MaxDD | Equal-weight universe | Best investable ETF (≥5y overlap) | Verdict |
+|---|---|---|---|---|
+| India (Nifty 200) | **1.41 / −20%** | 0.88 / −48% | Nifty100 Low Vol 30: 0.89 vs strategy 1.28 (2018+) | **PASSED** all 5 checks |
+| US (S&P 500) | 1.00 / −22% | 0.95 / −45% | USMV 1.05, QUAL 0.95, MTUM 0.94 vs strategy 0.93–1.03 | **FAILED**: a factor ETF does as well with no effort |
 
 **How to read this:**
-- **India:** the systematic approach shows a robust risk-adjusted edge.
-- **US:** it roughly matches equal-weight on Sharpe with half the drawdown. A low-cost equal-weight or multifactor ETF is an equally valid choice, and every US report says so.
-- **Trial count:** each re-run of `validate` counts as another trial in the deflated Sharpe, so fiddling until something passes gets harder, not easier. Changing `policy.py` marks old results STALE.
+- **India:** a robust risk-adjusted edge, though survivorship bias inflates it (only today's index members were tested).
+- **US:** use USMV or QUAL as the default. The stock picks are an alternative, not an improvement.
+- **Trial count:** each re-run of `validate` counts as another trial in the deflated Sharpe. Changing `policy.py` marks old results STALE.
+
+## Tuning principles (what changed in the tuning pass, and what deliberately didn't)
+
+No weight or threshold was re-fitted to the backtest. That would raise backtest numbers and worsen live results, which is what the deflated Sharpe guards against. The tuning pass instead fixed departures from the research:
+- **Evidence scoped honestly.** The backtest covers price factors only, so conviction credits it only when a stock's strengths include momentum or low volatility.
+- **Fresher fundamentals.** Valuation and profitability use trailing 12 months when 4 consecutive quarters exist. The forensic gates stay on audited annual statements.
+- **Right benchmark.** Validation now compares against investable factor ETFs, not just equal-weight.
+- **Tax-aware selling (India).** A rank-based sell of a winner within 60 days of its 1-year mark waits for the 12.5% long-term rate instead of 20%. Safety-gate sells never wait.
+- **Track record.** Recommendations are logged and graded out of sample.
 
 ## Known limitations (read before trusting anything)
 

@@ -87,6 +87,13 @@ def portfolio_status(market: str) -> str:
 
 
 @mcp.tool()
+def track_record() -> str:
+    """Grades every past recommendation against the market (live, out-of-sample). Read-only."""
+    from . import scorecard
+    return _j(scorecard.grade())
+
+
+@mcp.tool()
 def explain_policy() -> str:
     """The frozen rules (gates, weights, sizing, risk limits). Read-only."""
     to_dict = lambda m: {k: (to_dict(v) if hasattr(v, "items") else v) for k, v in m.items()}  # noqa: E731

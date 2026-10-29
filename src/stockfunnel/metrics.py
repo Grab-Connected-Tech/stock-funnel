@@ -43,6 +43,10 @@ def fundamental_metrics(f: dict) -> dict:
     sector = info.get("sector") or "Unknown"
     mcap = info.get("marketCap")
     rev, ni = item(inc, acc.REV), item(inc, acc.NI)
+    # Valuation & profitability use the freshest trailing-12-month flows when 4 consecutive quarters
+    # exist; forensic gates below keep using audited annual statements (consistent full-year periods).
+    t12 = acc.ttm(f.get("income_q"), inc.columns.max() if inc is not None and not inc.empty else None)
+    rev_v, ni_v = (t12["rev"], t12["ni"]) if t12 else (rev, ni)
     ta, eq = item(bal, acc.TA), item(bal, acc.EQUITY)
     debt = item(bal, ["Total Debt"])
     if debt is None:  # yfinance omits Total Debt for some firms; rebuild it, else leave unknown
@@ -50,6 +54,8 @@ def fundamental_metrics(f: dict) -> dict:
         debt = None if all(p is None for p in parts) else sum(p or 0.0 for p in parts)
     cash = item(bal, ["Cash Cash Equivalents And Short Term Investments", "Cash And Cash Equivalents"]) or 0.0
     ebit, cfo = item(inc, acc.EBIT), item(cf, acc.CFO)
+    ebit_v = t12["ebit"] if t12 and t12["ebit"] is not None else ebit
+    gp_v = t12["gp"] if t12 and t12["gp"] is not None else item(inc, acc.GP)
     capex = item(cf, ["Capital Expenditure"])
     fcf = item(cf, ["Free Cash Flow"]) or (None if None in (cfo, capex) else cfo + capex)
     interest = item(inc, ["Interest Expense", "Interest Expense Non Operating"])
@@ -77,10 +83,11 @@ def fundamental_metrics(f: dict) -> dict:
         "currency": info.get("currency"),
         "years_of_statements": int(inc.shape[1]) if inc is not None and not inc.empty else 0,
         # quality
-        "roe": div(ni, eq),
-        "roa": div(ni, ta),
-        "roic": div(ebit * 0.75 if ebit is not None else None, invested if invested and invested > 0 else None),
-        "gross_profitability": div(item(inc, acc.GP), ta),  # Novy-Marx (2013)
+        "fundamentals_basis": f"TTM to {t12['period_end']:%b %Y}" if t12 else f"FY to {inc.columns.max():%b %Y}" if inc is not None and not inc.empty else None,
+        "roe": div(ni_v, eq),
+        "roa": div(ni_v, ta),
+        "roic": div(ebit_v * 0.75 if ebit_v is not None else None, invested if invested and invested > 0 else None),
+        "gross_profitability": div(gp_v, ta),  # Novy-Marx (2013)
         "cfo_to_ni": div(cfo, ni) if ni and ni > 0 else None,
         "accruals": acc.sloan_accruals(inc, bal, cf),
         "piotroski": f_score,
@@ -100,18 +107,18 @@ def fundamental_metrics(f: dict) -> dict:
         "altman_z2": None if is_fin else acc.altman_z2(bal, inc),
         "beneish_m": None if is_fin else acc.beneish_m(inc, bal, cf),
         # value
-        "earnings_yield": div(ebit, ev) if ev and ev > 0 else None,  # Greenblatt EBIT/EV
+        "earnings_yield": div(ebit_v, ev) if ev and ev > 0 else None,  # Greenblatt EBIT/EV
         "fcf_yield": div(fcf, mcap),
         "fcf_to_ev": div(fcf, ev) if ev and ev > 0 else None,
-        "sales_to_ev": div(rev, ev) if ev and ev > 0 else None,
-        "earnings_to_price": div(ni, mcap),
+        "sales_to_ev": div(rev_v, ev) if ev and ev > 0 else None,
+        "earnings_to_price": div(ni_v, mcap),
         "book_to_price": div(eq, mcap),
         "pe": info.get("trailingPE"),
         "shareholder_yield": div(divs + buyback - issuance, mcap),
         # growth / investment
         "asset_growth": div(ta, ta1) - 1 if ta and ta1 else None,  # Cooper-Gulen-Schill: high = bad
         "revenue_cagr_3y": (revs[0] / revs[3]) ** (1 / 3) - 1 if revs[0] and revs[3] and revs[0] > 0 and revs[3] > 0 else None,
-        "revenue": rev,
+        "revenue": rev_v,
         # India governance (yfinance exposes insider % as a rough promoter-holding proxy)
         "insider_pct": info.get("heldPercentInsiders"),
         "analyst_rec_mean": info.get("recommendationMean"),

@@ -20,6 +20,14 @@ from . import data
 from .policy import PORTFOLIO, WEIGHTS
 
 EULER = 0.5772156649
+# Investable alternatives (prices include dividends and ETF fees). The research bar: if the strategy
+# can't beat these on risk-adjusted terms, buy the ETF instead.
+FACTOR_ETFS = {
+    "US": {"RSP": "S&P 500 equal weight", "MTUM": "US momentum", "QUAL": "US quality", "USMV": "US min volatility"},
+    "IN": {"NIFTYBEES.NS": "Nifty 50", "LOWVOLIETF.NS": "Nifty100 low vol 30",
+           "MOMENTUM.NS": "Nifty200 momentum 30", "QUAL30IETF.NS": "Nifty200 quality 30"},
+}
+MIN_ETF_MONTHS = 60
 
 
 def deflated_sharpe(returns: pd.Series, trial_sharpes: list[float], n_trials: int | None = None) -> float:
@@ -155,12 +163,30 @@ def run(universe: str, period: str = "20y") -> dict:
     sub = [round(sr(base[i]) - sr(ew[i]), 3) for i in thirds]
     dsr = deflated_sharpe(base, trial_sharpes, n_trials)
     cv = cscv(variants, ew)
+
+    etf_px = data.prices(list(FACTOR_ETFS[market]), period=period)["close"].dropna(how="all")
+    etfs = {}
+    for t, name in FACTOR_ETFS[market].items():
+        if t not in etf_px or etf_px[t].dropna().empty:
+            continue
+        er = etf_px[t].dropna()
+        er = er[er.index.isin(me)].pct_change().reindex(base.index).dropna()
+        sb = base.reindex(er.index)
+        if len(er) < 12:
+            continue
+        etfs[t] = {"name": name, "months": len(er), "strategy_sharpe": round(sr(sb), 2), "etf_sharpe": round(sr(er), 2),
+                   "strategy_cagr": _stats(sb)["cagr"], "etf_cagr": _stats(er)["cagr"],
+                   "strategy_max_dd": _stats(sb)["max_drawdown"], "etf_max_dd": _stats(er)["max_drawdown"],
+                   "enough_history": len(er) >= MIN_ETF_MONTHS}
     verdict = {
         "dsr>=0.95": dsr >= 0.95,
         "edge_in_80pct_of_cscv_half_samples": cv["p_no_edge"] < 0.2,
         "sharpe_edge_vs_equal_weight_in_2of3_subperiods": sum(s > 0 for s in sub) >= 2,
         "all_perturbations_keep_sharpe_edge": all(v > 0 for v in edge.values()),
     }
+    judged = [e for e in etfs.values() if e["enough_history"]]
+    if judged:  # only ETFs with >= 5 years of overlap count; younger ones are reported, not judged
+        verdict["beats_factor_etfs_on_sharpe"] = all(e["strategy_sharpe"] > e["etf_sharpe"] for e in judged)
     return {
         "universe": universe, "market": market, "period": f"{base.index[0].date()} → {base.index[-1].date()}",
         "strategy": _stats(base), "equal_weight_universe": _stats(ew.dropna()), "index_price_only": _stats(idx.dropna()),
@@ -168,10 +194,12 @@ def run(universe: str, period: str = "20y") -> dict:
         "subperiod_sharpe_edge_vs_equal_weight": sub,
         "deflated_sharpe": round(dsr, 3), "trials": n_trials,
         "cscv": {k: round(v, 3) for k, v in cv.items()},
+        "vs_factor_etfs": etfs,
         "checks": {k: bool(v) for k, v in verdict.items()}, "passed": bool(all(verdict.values())),
         "caveats": ["bad prints (daily moves < -50% or > +100%) repaired as data errors",
                     "survivorship bias: current constituents only (inflates all absolute numbers)",
                     "fundamental gates/themes not backtested (no point-in-time data)",
                     "backtest omits sector caps, min weight and drift band used live",
-                    "index benchmark is price-only (excludes dividends)"],
+                    "index benchmark is price-only (excludes dividends)",
+                    "ETF comparison favours the strategy: ETFs are real (survivorship-free, after fees)"],
     }

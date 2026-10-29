@@ -122,6 +122,11 @@ def save_review(market: str, as_of: str, t: str, rev: dict) -> list[str]:
     return existing
 
 
+def _positions_meta(state: dict, last: dict) -> dict[str, dict]:
+    return {t: {"opened": p.get("opened"), "gain": (last[t] / p["avg_cost"] - 1) if t in last and p["avg_cost"] else None}
+            for t, p in state["positions"].items()}
+
+
 DEFAULT_PEERS = {"US": "sp500", "IN": "nifty200"}
 
 
@@ -165,12 +170,16 @@ def analyze_stock(ticker: str, universe: str | None = None) -> dict:
         "metrics": {k: (round(v, 4) if isinstance(v, float) else v) for k, v in m.items()
                     if k in pick and not (isinstance(v, float) and np.isnan(v))},
         "your_book": {"held": ticker in st["positions"], "watchlist_since": st["watchlist"].get(ticker),
-                      "standing_veto": st.get("vetoes", {}).get(ticker)},
+                      "standing_veto": st.get("vetoes", {}).get(ticker),
+                      **_positions_meta(st, a["last_prices"]).get(ticker, {})},
         "not_covered": checks.NOT_COVERED[market],
     }
     from . import recommend
     full = {k: (None if isinstance(v, float) and np.isnan(v) else v) for k, v in m.items()}
     out["recommendation"] = recommend.build(out, full, sc, latest_validation(market), checks.run(ticker))
+    from . import scorecard
+    scorecard.log(market, ticker, a["as_of"], out["recommendation"]["action"], a["last_prices"].get(ticker), "analyze",
+                  out["recommendation"]["conviction"])
     return out
 
 
@@ -226,7 +235,8 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
     vetoes = state.setdefault("vetoes", {})
 
     p = portfolio.plan(a["scored"], a["rejected"], market, a["regime"], held, state["watchlist"], vetoes,
-                       capital=risk["nav"] or risk.get("priced_nav") or 1.0, as_of=as_of, last_rebalance=state.get("last_rebalance"))
+                       capital=risk["nav"] or risk.get("priced_nav") or 1.0, as_of=as_of, last_rebalance=state.get("last_rebalance"),
+                       positions_meta=_positions_meta(state, last))
     if official:  # what-if runs never advance the cooling-off clock
         state["watchlist"] = p["watchlist"]
 
@@ -254,6 +264,16 @@ def run(universe: str, mode: str = "manual", capital: float | None = None, limit
         final[t] = {**act, "quant_action": act["action"], **c}
         if c["action"] != "BUY" and act["action"] == "BUY":
             final[t]["target_weight"] = round(held.get(t, 0.0), 4)
+
+    if official:  # every official call joins the out-of-sample track record
+        from . import scorecard
+        for t, f in final.items():
+            act = {"WATCH": "BUY AFTER" if f["reason"].startswith("cooling-off") else None, "TRIM": "HOLD"}.get(f["action"], f["action"])
+            if act:
+                scorecard.log(market, t, a["as_of"], act, last.get(t), "run")
+        for t in a["rejected"]:  # grading rejected stocks over time tests whether the gates avoid losers
+            if t not in final:
+                scorecard.log(market, t, a["as_of"], "AVOID", last.get(t), "run")
 
     executions = []
     if mode == "autopilot":

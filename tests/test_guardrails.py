@@ -186,6 +186,25 @@ def test_recommendation_rules():
     unk = {"surveillance": {"status": "UNKNOWN", "detail": "down"}}
     assert recommend.build(base, {}, scored, proven, unk)["action"] == "WAIT"  # critical check unverifiable
     assert recommend.build(base, {"ret_1m": 0.4}, scored, proven, ok)["action"] == "WAIT"  # no chasing
+    # evidence only counts when the backtested price factors are what makes the stock attractive
+    untested = base | {"themes": {"value": 2.0, "quality": 2.0, "momentum": -1.0, "low_vol": -1.0, "yield": 1.0}}
+    assert recommend.build(untested, {"piotroski": 9}, scored, proven, ok)["conviction"] != "HIGH"
+    assert recommend.build(base, {}, scored, unproven, ok)["alternative"]  # ETF alternative shown without an edge
+
+
+def test_india_tax_deferral():
+    from stockfunnel.portfolio import tax_deferral_days as d
+    day = date(2026, 10, 28)
+    assert d("IN", "2025-12-01", 0.2, day) == 35        # winner near 1 year: wait for long-term rate
+    assert d("IN", "2025-12-01", -0.1, day) == 0        # loser: sell now
+    assert d("IN", "2026-05-01", 0.2, day) == 0         # far from 1 year: sell now
+    assert d("US", "2025-12-01", 0.2, day) == 0         # rule is India-only
+    scored = pd.DataFrame({"rank": [90.0], "vol_1y": [0.2], "sector": ["A"], "adv_value_60d": [1e12], "ret_1m": [0.0],
+                           "score": [0.1]}, index=["W.NS"])
+    kw = dict(market="IN", regime={"max_equity_exposure": 1.0}, holdings={"W.NS": 0.05}, watchlist={}, vetoes={},
+              capital=1e7, as_of=day, last_rebalance=None, positions_meta={"W.NS": {"opened": "2025-12-01", "gain": 0.2}})
+    assert portfolio.plan(scored, {}, **kw)["actions"]["W.NS"]["action"] == "HOLD"           # rank sell deferred
+    assert portfolio.plan(scored, {"W.NS": ["beneish_m"]}, **kw)["actions"]["W.NS"]["action"] == "SELL"  # safety never waits
 
 
 def test_deflated_sharpe_penalizes_many_trials():

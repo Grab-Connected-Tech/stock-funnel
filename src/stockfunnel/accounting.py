@@ -42,6 +42,25 @@ EQUITY = ["Stockholders Equity", "Common Stock Equity"]
 EBIT = ["EBIT", "Operating Income"]
 
 
+def ttm(income_q: pd.DataFrame | None, after) -> dict | None:
+    """Trailing-twelve-month sums of the income-statement flows, from the 4 newest quarters.
+    Only when they are 4 *consecutive* quarters (free data has gaps) and newer than the latest
+    annual report; otherwise None and callers keep the annual figures."""
+    if income_q is None or income_q.empty or income_q.shape[1] < 4:
+        return None
+    cols = sorted(income_q.columns, reverse=True)[:4]
+    gaps = [(cols[i] - cols[i + 1]).days for i in range(3)]
+    if not all(80 <= g <= 100 for g in gaps) or (after is not None and cols[0] <= after):
+        return None
+    q = income_q[cols]
+    out = {}
+    for key, names in {"rev": REV, "ni": NI, "ebit": EBIT, "gp": [GP]}.items():
+        vals = [item(q, names, i) for i in range(4)]
+        out[key] = sum(vals) if all(v is not None for v in vals) else None
+    out["period_end"] = cols[0]
+    return out if out["rev"] is not None and out["ni"] is not None else None
+
+
 def piotroski(inc, bal, cf) -> tuple[int | None, int]:
     """Piotroski (2000) F-score. Returns (score, number_of_signals_computable).
     Score is scaled to 0-9 from the computable signals; None if fewer than 7 computable."""

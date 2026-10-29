@@ -12,7 +12,7 @@ import pandas as pd
 
 from .checks import CRITICAL
 from .policy import GATES, PORTFOLIO
-from .portfolio import capped_weights
+from .portfolio import capped_weights, tax_deferral_days
 
 # gate -> (metric, limit, "min"|"max", label, comfort): `comfort` is the distance from the limit we
 # consider safely clear, in the metric's own units (a fixed judgment per gate, not fitted).
@@ -28,6 +28,11 @@ GATE_LIMITS = {
     "not_lottery_stock": ("vol_percentile", GATES["max_vol_percentile"], "max", "Volatility percentile", 0.2),
 }
 NEAR = 0.25  # within a quarter of the comfort distance = "close to the rejection line"
+ETF_ALTERNATIVE = {
+    "US": "Over 2011-2026 a low-cost factor ETF (USMV or QUAL) matched this strategy's risk-adjusted return "
+          "with no stock picking. In the US, owning that ETF is an equally good default.",
+    "IN": "No proven edge on record for India right now; a Nifty 50 index fund is the default alternative.",
+}
 GATE_NAMES = {
     "history_1y": "under 1 year of history", "min_price": "penny stock", "liquidity": "too thinly traded",
     "data_quality": "suspicious price data", "no_stale_trading": "irregular trading", "min_market_cap": "too small",
@@ -114,8 +119,12 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     elif rank is None:
         action, why = ("SELL" if held else "AVOID"), ["Too little data to rank"]
     elif rank > buffer:
-        action = "SELL" if held else "AVOID"
+        wait = tax_deferral_days(market, book.get("opened"), book.get("gain"), today) if held else 0
+        action = "HOLD" if wait else "SELL" if held else "AVOID"
         why.insert(0, f"Ranks {rank} of {r['ranked_peers']}: outside the top {buffer}; better options exist")
+        if wait:
+            start = today + timedelta(days=wait)
+            why.insert(1, f"Sell on {start} ({wait} days): that qualifies the gain for 12.5% long-term tax instead of 20%")
     elif rank > n:
         action = "HOLD" if held else "WAIT"
         why.insert(0, f"Ranks {rank}: good enough to keep, not strong enough to start a new position (top {n})")
@@ -147,12 +156,18 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     if warn_checks:
         pts -= 1; notes.append("−1 filing warning")  # noqa: E702
     proven = validation.get("status") == "PASSED"
-    if proven:
-        pts += 1; notes.append("+1 strategy has a proven edge in this market")  # noqa: E702
+    # The backtest validates only the price factors (momentum, low volatility). Credit that evidence
+    # only when those factors are what make this stock attractive; value/quality/yield are untested.
+    tested = [r["themes"].get(k) for k in ("momentum", "low_vol") if r["themes"].get(k) is not None]
+    tested_avg = sum(tested) / len(tested) if tested else None
+    if proven and tested_avg is not None and tested_avg > 0:
+        pts += 1; notes.append("+1 its strengths include the backtested price factors")  # noqa: E702
+    elif proven:
+        notes.append("no evidence point: ranked mainly on value/quality, which aren't backtested yet")
     conviction = "HIGH" if pts >= 4 else "MEDIUM" if pts >= 2 else "LOW"
-    if not proven and conviction == "HIGH":
+    if not (proven and tested_avg and tested_avg > 0) and conviction == "HIGH":
         conviction = "MEDIUM"
-        notes.append("capped at MEDIUM: no proven edge in this market (an index fund is a valid alternative)")
+        notes.append("capped at MEDIUM: no backtested edge behind this pick")
 
     weight = target_weight(r["ticker"], scored, market, reg["max_equity_exposure"]) if action in ("BUY", "BUY AFTER", "HOLD") and rank else None
     sell_if = [f"Rank drops below {buffer} at a monthly review"]
@@ -162,6 +177,7 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
     return {
         "action": action,
         "start_date": start.isoformat() if start and action == "BUY AFTER" else None,
+        "sell_date": start.isoformat() if start and action == "HOLD" and rank and rank > buffer else None,
         "conviction": conviction if action in ("BUY", "BUY AFTER", "HOLD") else None,
         "conviction_points": notes,
         "position_size": weight,
@@ -171,6 +187,7 @@ def build(r: dict, fm: dict, scored: pd.DataFrame, validation: dict, checks: dic
         "why": why[:4],
         "risks": risks[:4],
         "sell_if": sell_if if action in ("BUY", "BUY AFTER", "HOLD") else [],
+        "alternative": None if proven else ETF_ALTERNATIVE.get(market),
         "next_review": (today + timedelta(days=30)).isoformat(),
         "checks": checks,
     }
