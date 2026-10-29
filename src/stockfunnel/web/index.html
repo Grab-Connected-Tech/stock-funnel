@@ -448,9 +448,9 @@ function renderStock(r) {
   return `
   <div class="grid">
     ${r.recommendation ? recCard(r.recommendation) : ""}
-    <div class="card verdict" style="--vc:${vc}">
+    <div class="card verdict" style="--vc:${r.blocked ? "var(--crit)" : vc}">
       <div>
-        <span class="badge"><i>${icon}</i>${esc(r.verdict)}</span>
+        <span class="badge"><i>${icon}</i>${esc(r.verdict)}</span>${r.blocked ? `<span class="badge" style="--vc:var(--crit);color:var(--crit)"><i>✕</i>BLOCKED</span>` : ""}
         <div class="vname">${esc(m.name || r.ticker)}</div>
         <div class="small muted">${esc(r.ticker)} · ${esc(m.sector || "")} · ${money(m.market_cap, ccy)} · data as of ${esc(r.as_of)} · peers: ${esc(r.peer_universe)}${r.member ? "" : " (not a member)"}</div>
         <p class="vdetail">${esc(r.detail)}</p>

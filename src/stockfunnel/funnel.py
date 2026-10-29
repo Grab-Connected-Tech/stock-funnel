@@ -198,6 +198,9 @@ def stock_report(ticker: str, a: dict, st: dict, log: bool = True) -> dict:
     from . import scorecard, signals
     sig = signals.run(ticker, a["metrics"], a["as_of"])
     out["recommendation"] = recommend.build(out, full, sc, latest_validation(market), checks.run(ticker), signals=sig)
+    out["blocked"] = out["recommendation"]["action"] == "AVOID" and out["verdict"] != "REJECT"
+    if out["blocked"]:  # ranked well on the statements, but a later check vetoed it: say so next to the stage
+        out["detail"] += f". BLOCKED: {out['recommendation']['why'][0]}"
     if log:
         scorecard.log(market, ticker, a["as_of"], out["recommendation"]["action"], a["last_prices"].get(ticker), "analyze",
                       out["recommendation"]["conviction"], {k: v["status"] for k, v in sig.items()})

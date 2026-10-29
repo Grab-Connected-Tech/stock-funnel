@@ -76,7 +76,7 @@ def render_stock(r: dict) -> str:
         out.append(f"Conviction tally ({rec['conviction_score']} pts): {', '.join(rec['conviction_points'])}")
     out.append(f"_Evidence scope: {rec['evidence_scope']}_")
     out += [f"Next review: {rec['next_review']}", "", "## Details", "",
-           f"**Funnel stage: {r['verdict']}**: {r['detail']}",
+           f"**Funnel stage: {r['verdict']}{' (BLOCKED)' if r.get('blocked') else ''}**: {r['detail']}",
            f"Peers: {r['peer_universe']}" + ("" if r["member"] else " (not a member; ranked alongside it)"),
            f"Regime: {reg['label']}, max equity {reg['max_equity_exposure']:.0%}", ""]
     if r["themes"]:

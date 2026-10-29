@@ -102,10 +102,10 @@ def india(symbol: str) -> dict[str, dict]:
         d, cur = recs[-1]
         prev = recs[-2][1] if len(recs) > 1 else cur
         if cur > PLEDGE_MAX:
-            return {"status": "FAIL", "detail": f"{cur:.1f}% of promoter holding pledged ({d:%b %Y})"}
+            return {"status": "FAIL", "detail": f"{cur:.1f}% of promoter holding pledged or encumbered ({d:%b %Y})"}
         if cur - prev > PLEDGE_JUMP:
-            return {"status": "FAIL", "detail": f"promoter pledge jumped {prev:.1f}% → {cur:.1f}%"}
-        return {"status": "PASS", "detail": f"{cur:.1f}% of promoter holding pledged ({d:%b %Y})"}
+            return {"status": "FAIL", "detail": f"promoter pledge/encumbrance jumped {prev:.1f}% → {cur:.1f}%"}
+        return {"status": "PASS", "detail": f"{cur:.1f}% of promoter holding pledged or encumbered ({d:%b %Y})"}
 
     def auditor():
         frm, to = (date.today() - timedelta(days=LOOKBACK_DAYS)).strftime("%d-%m-%Y"), date.today().strftime("%d-%m-%Y")

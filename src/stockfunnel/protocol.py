@@ -87,6 +87,8 @@ FIELD_GUIDE = {
                               "upcoming results date. POSITIVE | NEUTRAL | WARN | WAIT | FAIL | UNKNOWN. "
                               "revision_breadth is TRACKING ONLY: shown and graded, but it does not affect the action",
     "verdict": "funnel STAGE, not the action: TOP RANKED (top 30) | HOLD ZONE | BELOW BUFFER | REJECT (failed a gate). The action is recommendation.action",
+    "blocked": "true when the stock ranked well on its statements but a later pre-trade check vetoed it (action AVOID); "
+               "lead with the block, not the stage",
     "rank / ranked_peers": "internal position among gate-passing peers, used only for tier rules (top 30 = buy zone, "
                            "hold zone up to 60 IN / 75 US). Don't present the number: only the tier carries information",
     "themes": "factor z-scores vs sector peers (0 = average, +1 = better than ~84%, -1 = worse than ~84%): "
