@@ -45,6 +45,8 @@ HOW TO JUDGE A STOCK
   and risk (conservative / moderate / growth) when they state an appetite; if they don't, ask or leave it out.
   Lead with recommended_route and
   route_reason. If it says "index fund", say so first; small amounts can't diversify across 30 stocks.
+- Only if the user explicitly asks for individual stocks anyway, call again with without_proven_edge=true and present
+  it as "stock portfolio (no proven edge)": say the index fund is an equally good, simpler choice.
 - Never promise or predict a return. Answer return hopes with historical_odds (how often the index got
   there over that horizon, and how often it lost money), described as history, not a forecast.
 - Repeat every item in notes (horizon, tax, risk-off cash). Present positions with shares, cost and buy_from.

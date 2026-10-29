@@ -49,9 +49,12 @@ def horizon_odds(ticker: str, name: str, months: int, target_monthly: float | No
 
 
 def plan_investment(amount: float, market: str = "IN", months: int = 3, target_monthly_return: float | None = None,
-                    universe: str | None = None, fractional: bool | None = None, risk: str | None = None) -> dict:
+                    universe: str | None = None, fractional: bool | None = None, risk: str | None = None,
+                    without_proven_edge: bool = False) -> dict:
     """fractional: allow fractional shares (default: yes for US brokers, no for India).
-    risk: conservative | moderate | growth caps the stock share by historical worst loss; None = unchanged default."""
+    risk: conservative | moderate | growth caps the stock share by historical worst loss; None = unchanged default.
+    without_proven_edge: build the stock portfolio even when the backtest hasn't proven an edge (manual mode: the
+    same BUY calls analyze_stock gives, sized); the index fund stays the default when False."""
     fractional = market == "US" if fractional is None else fractional
     universe = universe or funnel.DEFAULT_PEERS[market]
     a = funnel.analyze_universe(universe)
@@ -88,7 +91,7 @@ def plan_investment(amount: float, market: str = "IN", months: int = 3, target_m
     placed_frac = placed / equity_budget if equity_budget else 0.0
     validation = funnel.latest_validation(market)
     proven = validation.get("status") == "PASSED"
-    stock_route = proven and placed_frac >= MIN_PLACED
+    stock_route = (proven or without_proven_edge) and placed_frac >= MIN_PLACED
 
     etf, etf_name = INDEX_FUND[market]
     etf_px = data.prices([etf], "1mo")["close"][etf].dropna()
@@ -96,17 +99,20 @@ def plan_investment(amount: float, market: str = "IN", months: int = 3, target_m
     units = lambda money: (round(money / etf_price, 4) if fractional else math.floor(money / etf_price)) if etf_price else None  # noqa: E731
     # stock route: the ETF tops up only what stocks can't take (unaffordable / avoided); money for names on a
     # temporary WAIT stays in cash until they clear.
-    etf_money = (equity_budget - placed) if stock_route else equity_budget
+    etf_money = max(0.0, equity_budget - placed) if stock_route else equity_budget  # fractional rounding can overshoot
     odds = (horizon_odds(data.MARKETS[market]["benchmark"], INDEX_NAME[data.MARKETS[market]["benchmark"]], months,
                          target_monthly_return) if stock_route else
             horizon_odds(etf, etf_name, months, target_monthly_return))
 
     notes = []
-    if proven and not stock_route:
+    if (proven or without_proven_edge) and not stock_route:
         notes.append(f"Only {placed_frac:.0%} of the {equity_budget:,.0f} equity budget could go into the funnel's stocks "
                      f"({len(positions) + len(waiting)} of {len(w)} names: {len(unaffordable)} unaffordable, {len(blocked)} "
                      "avoided). Below 80% the portfolio loses the diversification the strategy depends on, so the index "
                      "fund is the better route.")
+    if stock_route and not proven:
+        notes.append(f"Built on request without a proven edge (evidence: {validation.get('status')}). These are the "
+                     f"funnel's own BUY calls, sized; {etf_name} is an equally good, simpler choice for the same money.")
     if stock_route and etf_money > 0:
         notes.append(f"{etf_money:,.0f} of the equity budget couldn't be placed in stocks ({len(unaffordable)} unaffordable, "
                      f"{len(blocked)} avoided) and goes into {etf_name} instead of sitting in cash.")
@@ -136,9 +142,11 @@ def plan_investment(amount: float, market: str = "IN", months: int = 3, target_m
     return {
         "amount": amount, "market": market, "universe": universe, "as_of": a["as_of"], "regime": reg["label"],
         "fractional_shares": fractional,
-        "recommended_route": "stock portfolio" if stock_route else "index fund",
+        "recommended_route": ("stock portfolio" if proven else "stock portfolio (no proven edge)") if stock_route else "index fund",
         "route_reason": (f"{placed_frac:.0%} of the equity budget is placed across {len(positions)} stocks and the strategy "
-                         "has a validated edge here" if stock_route else
+                         "has a validated edge here" if stock_route and proven else
+                         f"{placed_frac:.0%} of the equity budget is placed across {len(positions)} stocks, as requested; "
+                         "NO proven edge here, so the index fund is an equally good choice" if stock_route else
                          "no validated edge in this market: the index fund is the evidence-based default" if not proven else
                          f"only {placed_frac:.0%} of the equity budget can be placed in stocks (need 80%)"),
         "index_fund": {"ticker": etf, "name": etf_name, "unit_price": round(etf_price, 2) if etf_price else None,

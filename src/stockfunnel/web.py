@@ -49,7 +49,8 @@ def _plan(q):
     if amount <= 0 or not 1 <= months <= 600 or q.get("market", "IN") not in ("IN", "US") or (risk and risk not in RISK_MAX_LOSS):
         raise ValueError("amount > 0, months 1-600, market IN/US, risk conservative/moderate/growth")
     target = float(q["target"]) if q.get("target") else None
-    return plan_investment(amount, q.get("market", "IN"), months, target, risk=risk)
+    return plan_investment(amount, q.get("market", "IN"), months, target, risk=risk,
+                           without_proven_edge=q.get("stocks") == "1")
 
 
 def _param(name, desc, required=True, enum=None):
@@ -78,7 +79,8 @@ def openapi(port: int) -> dict:
                              [_param("amount", "money to invest (INR or USD)"), _param("market", "", False, ["US", "IN"]),
                               _param("months", "holding period in months", False),
                               _param("risk", "caps the stock share", False, ["conservative", "moderate", "growth"]),
-                              _param("target", "hoped-for monthly return as a decimal, e.g. 0.01", False)]),
+                              _param("target", "hoped-for monthly return as a decimal, e.g. 0.01", False),
+                              _param("stocks", "1 = build the stock portfolio even without a proven edge", False, ["0", "1"])]),
             "/api/track_record": get("trackRecord", "How past recommendations performed vs the market"),
             "/api/protocol": get("protocol", "Judgement protocol and field guide for LLMs"),
         },

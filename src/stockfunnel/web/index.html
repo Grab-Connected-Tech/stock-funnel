@@ -241,6 +241,8 @@ tr.click { cursor: pointer; } tr.click:hover td { background: var(--surface-2); 
         <button type="button" data-risk="moderate" aria-pressed="true" data-tip="Capped at a 20% loss in the worst historical period of this length">Moderate</button>
         <button type="button" data-risk="growth" aria-pressed="false" data-tip="No cap: the system's default">Growth</button>
       </div>
+      <label class="small" style="display:flex;align-items:center;gap:8px;cursor:pointer" data-tip="Build the funnel's own stock picks, sized for this amount, even though no edge is proven in this market. The index fund stays an equally good choice.">
+        <input type="checkbox" id="planStocks"> Pick stocks anyway</label>
       <button class="btn" id="planGo">Plan</button>
     </form>
     <div id="planOut" style="margin-top:24px"></div>
@@ -365,20 +367,25 @@ $("#planForm").onsubmit = async e => {
   const cur = planMkt === "IN" ? "₹" : "$", m = v => cur + Math.round(v).toLocaleString(planMkt === "IN" ? "en-IN" : "en-US");
   btn.disabled = true; out.innerHTML = loading("Building the plan… the first run of the day can take a minute.");
   try {
-    const p = await api("/api/plan", { amount: amt, market: planMkt, months, risk: planRisk });
+    const p = await api("/api/plan", { amount: amt, market: planMkt, months, risk: planRisk, stocks: $("#planStocks").checked ? 1 : 0 });
+    const unproven = p.recommended_route.includes("no proven edge");
     const sp = p.stock_portfolio;
     const o = p.historical_odds, rp = p.risk_profile || {};
     const bar = (label, v, c) => v > 0 ? `<div style="width:${v / amt * 100}%;background:${c}" title="${esc(label)} ${m(v)}"></div>` : "";
-    const legend = [["Stocks", sp.placed, "var(--good)"], [p.index_fund.name, p.index_fund.amount, "var(--accent)"], ["Cash / liquid fund", p.cash_or_liquid_fund, "var(--muted)"]]
+    const legend = [[sp.waiting.length ? "Stocks (incl. on hold)" : "Stocks", sp.placed, "var(--good)"], [p.index_fund.name, p.index_fund.amount, "var(--accent)"], ["Cash / liquid fund", p.cash_or_liquid_fund, "var(--muted)"]]
       .filter(x => x[1] > 0).map(([l, v, c]) => `<span style="--c:${c}">${esc(l)}: <b>${m(v)}</b> (${Math.round(v / amt * 100)}%)</span>`).join("");
     out.innerHTML = `
-      <div class="card"><h2>Recommended: ${esc(p.recommended_route)}</h2><p class="small muted">${esc(p.route_reason)}</p>
+      <div class="card"${unproven ? ` style="border-color:var(--warn)"` : ""}><h2>${unproven ? "Your stock plan (no proven edge)" : "Recommended: " + esc(p.recommended_route)}</h2><p class="small muted">${esc(p.route_reason)}</p>
         <div style="display:flex;height:14px;border-radius:10px;overflow:hidden;margin:14px 0 8px">
           ${bar("Stocks", sp.placed, "var(--good)")}${bar(p.index_fund.name, p.index_fund.amount, "var(--accent)")}${bar("Cash / liquid fund", p.cash_or_liquid_fund, "var(--muted)")}</div><div class="legend" style="margin-bottom:12px">${legend}</div>
+        ${p.recommended_route === "index fund" && p.evidence !== "PASSED" && !$("#planStocks").checked ? `<p class="small">Want to see the stocks the funnel would buy with this money? Tick <b>Pick stocks anyway</b>.</p>` : ""}
         ${rp.profile ? `<p class="small">Risk profile <b>${esc(rp.profile)}</b>: ${Math.round(rp.stock_share_before_regime * 100)}% allowed in stocks before the market-trend rule, because the ${esc(rp.index)}'s worst ${months}-month return was ${pct(rp.index_worst_return_over_horizon, 0)}${p.regime !== "risk_on" ? ` (the market is ${esc(p.regime.replace("_", "-"))}, which halves it)` : ""}.</p>` : ""}
       </div>
-      ${sp.positions.length ? `<div class="card"><h2>Stocks to buy</h2><div class="scroll"><table><thead><tr><th>Stock</th><th>Shares</th><th>Cost</th><th>Buy from</th></tr></thead><tbody>
-        ${sp.positions.map(x => `<tr><td><b>${esc(x.ticker.replace(/\.NS$/, ""))}</b><div class="small muted">${esc(x.name || "")}</div></td><td class="num">${x.shares}</td><td class="num">${m(x.cost)}</td><td>${esc(x.buy_from)}</td></tr>`).join("")}</tbody></table></div></div>` : ""}
+      ${sp.positions.length ? `<div class="card"><h2>Stocks to buy <span class="small muted" style="font-weight:400">${sp.positions.length} names, alphabetical</span></h2><div class="scroll"><table><thead><tr><th>Stock</th><th>Action</th><th>Shares</th><th>Cost</th><th>Weight</th><th>Buy from</th></tr></thead><tbody>
+        ${[...sp.positions].sort((a, b) => a.ticker.localeCompare(b.ticker)).map(x => `<tr class="click" data-t="${esc(x.ticker)}"><td><b>${esc(x.ticker.replace(/\.NS$/, ""))}</b><div class="small muted">${esc(x.name || "")}</div></td><td><span class="tag ${esc(x.action.split(" ")[0])}">${esc(x.action)}</span></td><td class="num">${x.shares}</td><td class="num">${m(x.cost)}</td><td class="num">${pct(x.weight)}</td><td>${esc(x.buy_from)}</td></tr>`).join("")}</tbody></table></div></div>` : ""}
+      ${sp.waiting.length ? `<div class="card"><h2>On hold for now <span class="small muted" style="font-weight:400">money stays in cash until the wait clears</span></h2><div class="scroll"><table><thead><tr><th>Stock</th><th>Shares</th><th>Cost</th><th>Why</th></tr></thead><tbody>
+        ${sp.waiting.map(x => `<tr class="click" data-t="${esc(x.ticker)}"><td><b>${esc(x.ticker.replace(/\.NS$/, ""))}</b><div class="small muted">${esc(x.name || "")}</div></td><td class="num">${x.shares}</td><td class="num">${m(x.cost)}</td><td class="small">${esc(x.reason)}</td></tr>`).join("")}</tbody></table></div></div>` : ""}
+      ${sp.avoided.length || sp.unaffordable.length ? `<p class="small muted">Left out: ${sp.avoided.map(x => `${esc(x.ticker.replace(/\.NS$/, ""))} (${esc(x.action.toLowerCase())})`).concat(sp.unaffordable.map(x => `${esc(x.ticker.replace(/\.NS$/, ""))} (one share costs more than its slice)`)).join(", ")}. Their money goes to ${esc(p.index_fund.name)}.</p>` : ""}
       ${p.index_fund.amount > 0 ? `<div class="card"><h2>${esc(p.index_fund.name)} (${esc(p.index_fund.ticker.replace(/\.NS$/, ""))})</h2><p>${p.index_fund.units ?? "–"} units ≈ ${m(p.index_fund.amount)}</p></div>` : ""}
       <div class="card"><h2>What history says about ${months} months</h2><p class="small muted">${esc(o.index)}, every ${months}-month period since ${esc(o.history_from.slice(0, 4))}. History, not a forecast.</p>
         <div class="grid g2" style="margin-top:10px">
@@ -387,6 +394,7 @@ $("#planForm").onsubmit = async e => {
           <div><div class="small muted">Bad case (worst 10%)</div><b>${pct(o.worst_10pct)}</b></div>
           <div><div class="small muted">Worst ever</div><b>${pct(o.worst)}</b></div></div></div>
       <div class="card"><h2>Notes</h2><ul>${p.notes.map(n => `<li>${esc(n)}</li>`).join("")}</ul><p class="small muted">${esc(p.disclaimer)}</p></div>`;
+    $$("tr.click", out).forEach(tr => tr.onclick = () => openStock(tr.dataset.t));
   } catch (err) { out.innerHTML = errorCard(err); }
   btn.disabled = false;
 };

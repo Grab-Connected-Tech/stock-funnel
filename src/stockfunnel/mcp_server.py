@@ -78,12 +78,16 @@ def plan_investment(amount: Annotated[float, Field(description="money to invest,
                     risk: Annotated[Literal["conservative", "moderate", "growth"] | None, Field(
                         description="risk appetite: caps the share put into stocks so a repeat of the index's worst "
                                     "period of this length would cost at most 10% (conservative) / 20% (moderate) of the "
-                                    "whole amount; growth or omitted = no cap. Changes how much, never which stocks")] = None) -> str:
+                                    "whole amount; growth or omitted = no cap. Changes how much, never which stocks")] = None,
+                    without_proven_edge: Annotated[bool, Field(
+                        description="true = build the stock portfolio even though no edge is proven in this market "
+                                    "(manual mode; only if the user explicitly asks for stocks). Default false = index fund")] = False) -> str:
     """Turn an amount of money into a concrete plan: which stocks and how many shares (or the index fund when the amount
     is too small to diversify), cash held back by the market regime, buy-from dates, and HISTORICAL odds of reaching a
     hoped-for return. Use this for any 'I have X to invest' question. Never present the odds as a forecast."""
     from .plan import plan_investment as build
-    return dumps(build(float(amount), market, int(months), target_monthly_return, fractional=fractional_shares, risk=risk))
+    return dumps(build(float(amount), market, int(months), target_monthly_return, fractional=fractional_shares, risk=risk,
+                       without_proven_edge=without_proven_edge))
 
 
 @mcp.tool()
