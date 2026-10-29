@@ -255,6 +255,27 @@ def test_reits_and_peak_earnings():
     assert any("peak-cycle" in r for r in peak["risks"]) and peak["conviction_score"] < calm["conviction_score"]
 
 
+def test_results_date_and_shadow_signals():
+    from stockfunnel import recommend
+    scored = pd.DataFrame({"rank": [1.0], "vol_1y": [0.2], "sector": ["A"], "score": [1.0]}, index=["X.NS"])
+    base = {"ticker": "X.NS", "as_of": "2026-10-27", "rank": 1, "ranked_peers": 1,
+            "themes": {"value": 1.0, "quality": 1.0, "momentum": 1.0, "low_vol": 1.0, "yield": 1.0},
+            "gates": {"failed": [], "unknown": [], "passed": True, "checks": {}}, "metrics": {},
+            "regime": {"max_equity_exposure": 1.0},
+            "your_book": {"held": False, "watchlist_since": "2026-10-01", "standing_veto": None}}  # cooling-off done
+    v = {"status": "PASSED"}
+    r = recommend.build(base, {}, scored, v, {}, signals={"upcoming_results": {"status": "WAIT", "detail": "", "date": "2026-10-29"}})
+    assert r["action"] == "BUY AFTER" and r["start_date"] == "2026-11-01"      # waits until results are out
+    fresh = base | {"your_book": base["your_book"] | {"watchlist_since": "2026-10-27"}}   # cooling-off ends 6 Nov
+    r2 = recommend.build(fresh, {}, scored, v, {}, signals={"upcoming_results": {"status": "WAIT", "detail": "", "date": "2026-10-29"}})
+    assert r2["start_date"] == "2026-11-06"                                     # results never shorten cooling-off
+    far = recommend.build(base, {}, scored, v, {}, signals={"upcoming_results": {"status": "NEUTRAL", "detail": "", "date": "2027-01-20"}})
+    assert far["action"] == "BUY"                                               # distant results don't delay
+    shadow = recommend.build(base, {}, scored, v, {}, signals={"revision_breadth": {"status": "WARN", "detail": "x"}})
+    plain = recommend.build(base, {}, scored, v, {})
+    assert shadow["action"] == plain["action"] and shadow["conviction_score"] == plain["conviction_score"]  # tracking only
+
+
 def test_india_tax_deferral():
     from stockfunnel.portfolio import tax_deferral_days as d
     day = date(2026, 10, 28)
