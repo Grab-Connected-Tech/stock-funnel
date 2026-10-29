@@ -90,6 +90,7 @@ This tests the price-based sleeve only: momentum + low vol + lottery exclusion +
 
 ## Known limitations (read before trusting anything)
 
+- **Beneish false alarms.** Beneish's receivables index (DSRI) blows up when receivables grow off a tiny base (e.g. Oberoi Realty 2026: ₹113 cr → ₹324 cr, about 5% of sales). The gate stays strict by design: missing one good stock is cheap, owning a manipulator is not, and loosening a published model after seeing which stock it rejects is curve-fitting. If you want to own a stock rejected this way, check the annual report yourself (receivable ageing, related-party sales, cash conversion). That decision sits outside the system, on purpose.
 - **Survivorship bias.** The backtest uses today's constituents, which inflates all absolute numbers. Compare relative results only.
 - **Fundamentals are not point-in-time.** yfinance restates figures and keeps only about 4–5 years, so the forensic gates and the value/quality themes are not backtested. Next upgrade: SEC companyfacts (`filed` dates) for the US, and a paid vendor (EODHD) or Screener exports for India.
 - **India governance data is missing.** Promoter pledging, ASM/GSM surveillance lists and auditor events aren't in free APIs. Every Indian report lists them as manual checks. Defaulting to Nifty 200 (mostly F&O stocks) reduces this exposure.
