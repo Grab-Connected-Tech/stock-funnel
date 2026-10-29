@@ -8,7 +8,7 @@ import pandas as pd
 from . import accounting as acc
 from .accounting import item
 
-FINANCIAL_SECTORS = {"Financial Services", "Financials", "Real Estate"}
+FINANCIAL_SECTORS = {"Financial Services", "Financials"}  # + REITs below; developers get full forensic gates
 
 
 def price_metrics(close: pd.Series, volume: pd.Series) -> dict:
@@ -66,7 +66,7 @@ def fundamental_metrics(f: dict) -> dict:
     cfos = [item(cf, acc.CFO, y) for y in range(3)]
     tas = [item(bal, acc.TA, y) for y in range(4)]
     roas = [nis[y] / tas[y] for y in range(4) if nis[y] is not None and tas[y]]
-    is_fin = sector in FINANCIAL_SECTORS
+    is_fin = sector in FINANCIAL_SECTORS or "REIT" in str(info.get("industry") or "")
     div = lambda a, b: None if a is None or not b else a / b  # noqa: E731
     return {
         "name": info.get("shortName") or info.get("longName"),
