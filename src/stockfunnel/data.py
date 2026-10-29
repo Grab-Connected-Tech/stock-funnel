@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 
-warnings.filterwarnings("ignore", message=".*inplace keyword.*")  # yfinance vs pandas 3 noise
+warnings.filterwarnings("ignore", category=pd.errors.Pandas4Warning)  # yfinance vs pandas 3 deprecation noise
 import yfinance as yf  # noqa: E402
 
 CACHE = Path.home() / ".cache" / "stockfunnel"

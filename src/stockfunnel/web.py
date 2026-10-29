@@ -13,29 +13,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-import numpy as np
-
-from . import broker, data, funnel, regime
+from . import broker, data, funnel, protocol, regime
 
 PAGE = Path(__file__).with_name("web") / "index.html"
 _lock = threading.Lock()  # one funnel computation at a time (shared caches and state file)
-
-
-def _json_default(o):
-    if isinstance(o, np.generic):
-        return o.item()
-    return str(o)
-
-
-def _clean(o):
-    """NaN -> None so the browser gets valid JSON."""
-    if isinstance(o, float) and o != o:
-        return None
-    if isinstance(o, dict):
-        return {k: _clean(v) for k, v in o.items()}
-    if isinstance(o, list):
-        return [_clean(v) for v in o]
-    return o
 
 
 def _status(market: str) -> dict:
@@ -56,13 +37,49 @@ def _run(universe: str) -> dict:
     return funnel.run(universe, "manual")  # manual only: the UI recommends, it never trades
 
 
+def _track_record(_q):
+    from . import scorecard
+    return scorecard.grade()
+
+
+def _param(name, desc, required=True, enum=None):
+    schema = {"type": "string", **({"enum": enum} if enum else {})}
+    return {"name": name, "in": "query", "required": required, "description": desc, "schema": schema}
+
+
+def openapi(port: int) -> dict:
+    """OpenAPI 3.1 description so non-MCP agents (e.g. GPT actions) can discover the endpoints."""
+    ok = {"200": {"description": "JSON result", "content": {"application/json": {"schema": {"type": "object"}}}}}
+    get = lambda op, summary, params=(): {"get": {"operationId": op, "summary": summary,  # noqa: E731
+                                                   "parameters": list(params), "responses": ok}}
+    return {
+        "openapi": "3.1.0",
+        "info": {"title": "stockfunnel", "version": "0.1.0", "description": protocol.PROTOCOL},
+        "servers": [{"url": f"http://127.0.0.1:{port}"}],
+        "paths": {
+            "/api/analyze": get("analyzeStock", "Final recommendation for one stock (action is final; never upgrade it)",
+                                [_param("ticker", "e.g. AAPL or TCS.NS"),
+                                 _param("universe", "peer universe", False, sorted(data.UNIVERSES))]),
+            "/api/regime": get("marketRegime", "Market regime and allowed equity exposure", [_param("market", "", True, ["US", "IN"])]),
+            "/api/run": get("runFunnel", "Screen an index (recommendations only)", [_param("universe", "", True, sorted(data.UNIVERSES))]),
+            "/api/validation": get("evidence", "Backtest verdict for a market", [_param("market", "", True, ["US", "IN"])]),
+            "/api/status": get("portfolioStatus", "Paper portfolio", [_param("market", "", True, ["US", "IN"])]),
+            "/api/track_record": get("trackRecord", "How past recommendations performed vs the market"),
+            "/api/protocol": get("protocol", "Judgement protocol and field guide for LLMs"),
+        },
+    }
+
+
 ROUTES = {
     "/api/analyze": lambda q: funnel.analyze_stock(q["ticker"].strip().upper(), q.get("universe") or None),
     "/api/regime": lambda q: regime.assess(q["market"]),
     "/api/validation": lambda q: funnel.latest_validation(q["market"]),
     "/api/status": lambda q: _status(q["market"]),
     "/api/run": lambda q: _run(q["universe"]),
+    "/api/track_record": _track_record,
+    "/api/protocol": lambda q: {"protocol": protocol.PROTOCOL, "field_guide": protocol.FIELD_GUIDE},
 }
+PORT = int(os.environ.get("STOCKFUNNEL_PORT", "8765"))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -80,6 +97,8 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path in ("/", "/index.html"):
             return self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
+        if url.path == "/openapi.json":
+            return self._send(200, protocol.dumps(openapi(PORT)).encode(), "application/json")
         fn = ROUTES.get(url.path)
         if not fn:
             return self._send(404, b'{"error":"not found"}', "application/json")
@@ -87,7 +106,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with _lock:
                 out = fn(q)
-            self._send(200, json.dumps(_clean(out), default=_json_default).encode(), "application/json")
+            self._send(200, protocol.dumps(out).encode(), "application/json")
         except KeyError as e:
             self._send(400, json.dumps({"error": f"missing parameter {e}"}).encode(), "application/json")
         except Exception as e:  # surface the reason (e.g. tamper refusal) instead of a blank page
@@ -95,9 +114,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    port = int(os.environ.get("STOCKFUNNEL_PORT", "8765"))
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    print(f"stockfunnel UI → http://127.0.0.1:{port}  (Ctrl+C to stop)")
+    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    print(f"stockfunnel UI → http://127.0.0.1:{PORT}  ·  API spec: /openapi.json  (Ctrl+C to stop)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

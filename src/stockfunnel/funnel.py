@@ -173,6 +173,7 @@ def analyze_stock(ticker: str, universe: str | None = None) -> dict:
                       "standing_veto": st.get("vetoes", {}).get(ticker),
                       **_positions_meta(st, a["last_prices"]).get(ticker, {})},
         "not_covered": checks.NOT_COVERED[market],
+        "evidence": latest_validation(market),
     }
     from . import recommend
     full = {k: (None if isinstance(v, float) and np.isnan(v) else v) for k, v in m.items()}

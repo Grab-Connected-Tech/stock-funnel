@@ -83,7 +83,14 @@ The UI only reads and recommends. It never trades, edits policy or clears vetoes
     "command": "uv", "args": ["--directory", "/Users/abhilashreddy/Projects/stock-funnel", "run", "stockfunnel-mcp"],
     "env": { "STOCKFUNNEL_REVIEWER_ID": "claude" } } } }
 ```
-Tools: `market_regime`, `analyze_stock`, `run_funnel`, `get_review_packet`, `submit_review`, `portfolio_status`, `explain_policy`. There are deliberately no tools to edit policy, override gates, reset a halt, or place arbitrary orders.
+**For any LLM (Claude, ChatGPT, Gemini, Cursor, ...):**
+- **Tools:** `market_regime`, `analyze_stock`, `run_funnel`, `get_review_packet`, `submit_review`, `portfolio_status`, `track_record`, `explain_policy`. `analyze_stock` and `run_funnel` return structured JSON by default; pass `format: "markdown"` for prose.
+- **Judgement protocol:** sent automatically as the server's instructions, and also available as the resource `stockfunnel://protocol`. In short, the tool decides and the model explains. The model must never upgrade an action, may quote only numbers from the tool, and must label any outside knowledge as "Outside the tool:", which can only add caution. It is defined in [protocol.py](src/stockfunnel/protocol.py).
+- **Field guide:** `stockfunnel://field-guide` explains every JSON field.
+- **Prompts:** `judge_stock(ticker)` and `screen_market(universe)` walk a model through the protocol step by step.
+- **Without MCP:** the web server publishes an OpenAPI spec at `http://127.0.0.1:8765/openapi.json`, with the protocol in its description. The endpoints are `/api/analyze`, `/api/regime`, `/api/run`, `/api/validation`, `/api/status`, `/api/track_record` and `/api/protocol`.
+
+There are deliberately no tools to edit policy, override gates, reset a halt, clear vetoes, or place arbitrary orders.
 
 Complementary official MCP servers (see [data-sources.md](docs/research/data-sources.md)):
 - Zerodha Kite MCP for Indian broker data
